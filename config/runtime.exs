@@ -23,6 +23,26 @@ end
 config :family_dashboard, FamilyDashboardWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# OpenWeatherMap API key (free tier). Weather simply stays empty if unset.
+config :family_dashboard, :openweather_api_key, System.get_env("WEATHER_API_KEY")
+
+# Shared-password gate for the settings/admin area. Required in prod; defaulted
+# for local dev/test so the app runs out of the box.
+settings_password =
+  System.get_env("SETTINGS_PASSWORD") ||
+    if config_env() == :prod do
+      raise """
+      environment variable SETTINGS_PASSWORD is missing.
+      It guards the settings/admin area (calendars, location, scheduling).
+      """
+    else
+      "family-dashboard"
+    end
+
+config :family_dashboard, :settings_auth,
+  username: System.get_env("SETTINGS_USERNAME", "family"),
+  password: settings_password
+
 if config_env() == :dev do
   # Reload browser tabs when matching files change.
   config :family_dashboard, FamilyDashboardWeb.Endpoint,

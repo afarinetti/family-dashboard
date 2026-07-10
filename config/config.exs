@@ -9,6 +9,10 @@ import Config
 
 config :ash_oban, pro?: false
 
+# The `ical` library needs a timezone database registered to correctly
+# resolve TZID-qualified datetimes in calendar feeds.
+config :elixir, :time_zone_database, Tz.TimeZoneDatabase
+
 config :family_dashboard, Oban,
   engine: Oban.Engines.Lite,
   notifier: Oban.Notifiers.PG,
@@ -64,7 +68,7 @@ config :spark,
 config :family_dashboard,
   ecto_repos: [FamilyDashboard.Repo],
   generators: [timestamp_type: :utc_datetime],
-  ash_domains: []
+  ash_domains: [FamilyDashboard.Dashboard]
 
 # Configure the endpoint
 config :family_dashboard, FamilyDashboardWeb.Endpoint,

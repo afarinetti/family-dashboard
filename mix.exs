@@ -53,6 +53,8 @@ defmodule FamilyDashboard.MixProject do
       {:ash_sqlite, "~> 0.2"},
       {:ash_phoenix, "~> 2.0"},
       {:ash, "~> 3.0"},
+      {:ical, "~> 3.0"},
+      {:tz, "~> 0.28"},
       {:igniter, "~> 0.6", only: [:dev, :test]},
       {:phoenix, "~> 1.8.9"},
       {:phoenix_ecto, "~> 4.5"},

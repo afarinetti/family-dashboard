@@ -2,6 +2,7 @@ defmodule FamilyDashboardWeb.Router do
   use FamilyDashboardWeb, :router
 
   import Oban.Web.Router
+  import AshAdmin.Router
 
   pipeline :browser do
     plug :accepts, ["html"]
@@ -12,6 +13,12 @@ defmodule FamilyDashboardWeb.Router do
     plug :put_secure_browser_headers
   end
 
+  # Shared-password gate for the settings/admin area. The public dashboard is
+  # intentionally NOT behind this — the wall display must never hit a login.
+  pipeline :settings_area do
+    plug FamilyDashboardWeb.Plugs.SettingsAuth
+  end
+
   pipeline :api do
     plug :accepts, ["json"]
   end
@@ -19,7 +26,16 @@ defmodule FamilyDashboardWeb.Router do
   scope "/", FamilyDashboardWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", DashboardLive, :index
+  end
+
+  # Settings/admin — source management (calendars, location, scheduling) and job
+  # monitoring. Available in all environments, behind the password gate.
+  scope "/" do
+    pipe_through [:browser, :settings_area]
+
+    ash_admin "/admin"
+    oban_dashboard("/oban")
   end
 
   # Other scopes may use custom stacks.
@@ -29,11 +45,6 @@ defmodule FamilyDashboardWeb.Router do
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:family_dashboard, :dev_routes) do
-    # If you want to use the LiveDashboard in production, you should put
-    # it behind authentication and allow only admins to access it.
-    # If your application does not have an admins-only section yet,
-    # you can use Plug.BasicAuth to set up some basic authentication
-    # as long as you are also using SSL (which you should anyway).
     import Phoenix.LiveDashboard.Router
 
     scope "/dev" do
@@ -41,22 +52,6 @@ defmodule FamilyDashboardWeb.Router do
 
       live_dashboard "/dashboard", metrics: FamilyDashboardWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview
-    end
-
-    scope "/" do
-      pipe_through :browser
-
-      oban_dashboard("/oban")
-    end
-  end
-
-  if Application.compile_env(:family_dashboard, :dev_routes) do
-    import AshAdmin.Router
-
-    scope "/admin" do
-      pipe_through :browser
-
-      ash_admin "/"
     end
   end
 end
