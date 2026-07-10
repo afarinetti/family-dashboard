@@ -1,4 +1,17 @@
 import Config
+import Dotenvy
+
+# Load optional local `.env` and `.env.<env>` files (silently ignored if absent,
+# since `require_files` defaults to false) and export them so the `System.get_env`
+# reads below pick them up. Real environment variables are the last source, so
+# they always win — production (which ships no `.env`) is unaffected.
+#
+# Skipped in :test so the suite stays hermetic (a developer's local `.env` must
+# not leak a real API key into tests, which would trigger live HTTP calls).
+if config_env() != :test do
+  source!([".env", ".env.#{config_env()}", System.get_env()])
+  |> System.put_env()
+end
 
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the

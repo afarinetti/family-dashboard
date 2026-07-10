@@ -39,3 +39,7 @@ npm-debug.log
 *.db
 *.db-*
 
+# env files (local secrets); the example is tracked
+.env
+.env.*
+!.env.example

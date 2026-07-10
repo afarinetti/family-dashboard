@@ -11,7 +11,10 @@ defmodule FamilyDashboard.WorkersTest do
   end
 
   test "WeatherRefresh cancels when no API key is configured" do
-    # The test environment sets no WEATHER_API_KEY.
+    original = Application.get_env(:family_dashboard, :openweather_api_key)
+    Application.put_env(:family_dashboard, :openweather_api_key, nil)
+    on_exit(fn -> Application.put_env(:family_dashboard, :openweather_api_key, original) end)
+
     assert {:cancel, :no_api_key} = perform_job(WeatherRefresh, %{})
   end
 end
