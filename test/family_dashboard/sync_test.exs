@@ -114,18 +114,26 @@ defmodule FamilyDashboard.SyncTest do
   describe "refresh_weather/1" do
     defp weather_plug do
       current = %{
-        "dt" => 1_783_000_000,
-        "name" => "Chicago",
-        "main" => %{"temp" => 70.0, "feels_like" => 68.0, "temp_min" => 60.0, "temp_max" => 80.0},
-        "weather" => [%{"description" => "clear sky", "icon" => "01d"}]
+        "data" => [
+          %{
+            "dt" => 1_783_000_000,
+            "temp" => 70.0,
+            "feels_like" => 68.0,
+            "weather" => [%{"description" => "clear sky", "icon" => "01d"}]
+          }
+        ]
       }
 
-      forecast = %{"city" => %{"name" => "Chicago"}, "list" => []}
+      daily = %{
+        "data" => [
+          %{"temp" => %{"min" => 60.0, "max" => 80.0}, "weather" => [%{"icon" => "01d"}]}
+        ]
+      }
 
       fn conn ->
         case conn.request_path do
-          "/data/2.5/weather" -> Req.Test.json(conn, current)
-          "/data/2.5/forecast" -> Req.Test.json(conn, forecast)
+          "/data/4.0/onecall/current" -> Req.Test.json(conn, current)
+          "/data/4.0/onecall/timeline/1day" -> Req.Test.json(conn, daily)
         end
       end
     end
@@ -140,6 +148,25 @@ defmodule FamilyDashboard.SyncTest do
       reading = Dashboard.latest_weather!()
       assert reading.temp == 70.0
       assert reading.condition == "clear sky"
+    end
+
+    test "records a human-readable weather_last_error on a fetch failure" do
+      plug = fn conn -> Plug.Conn.send_resp(conn, 401, ~s({"message":"Invalid API key"})) end
+
+      assert {:error, {:http_status, 401}} = Sync.refresh_weather(plug: plug)
+
+      {:ok, setting} = Dashboard.current_setting()
+      assert setting.weather_last_error =~ "Invalid or inactive API key"
+      assert setting.weather_last_attempted_at
+    end
+
+    test "clears weather_last_error after a subsequent successful refresh" do
+      fail_plug = fn conn -> Plug.Conn.send_resp(conn, 401, "nope") end
+      assert {:error, _} = Sync.refresh_weather(plug: fail_plug)
+      assert Dashboard.current_setting!().weather_last_error
+
+      assert :ok = Sync.refresh_weather(plug: weather_plug())
+      assert is_nil(Dashboard.current_setting!().weather_last_error)
     end
   end
 end

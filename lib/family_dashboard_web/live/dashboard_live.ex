@@ -15,7 +15,8 @@ defmodule FamilyDashboardWeb.DashboardLive do
   @default_setting %{
     greeting: "Welcome home",
     city_label: nil,
-    time_zone: "Etc/UTC"
+    time_zone: "Etc/UTC",
+    weather_last_error: nil
   }
 
   @impl true
@@ -146,7 +147,14 @@ defmodule FamilyDashboardWeb.DashboardLive do
                   </p>
                 </div>
               </div>
-              <p :if={is_nil(@weather)} class="text-xl text-base-content/50">No weather data yet.</p>
+              <div :if={is_nil(@weather)}>
+                <p :if={@setting.weather_last_error} class="text-xl text-warning">
+                  Weather unavailable — {@setting.weather_last_error}
+                </p>
+                <p :if={is_nil(@setting.weather_last_error)} class="text-xl text-base-content/50">
+                  No weather data yet.
+                </p>
+              </div>
             </div>
           </section>
         </div>

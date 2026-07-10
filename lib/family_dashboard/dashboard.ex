@@ -31,6 +31,7 @@ defmodule FamilyDashboard.Dashboard do
       define :current_setting, action: :current, not_found_error?: false
       define :create_setting, action: :create
       define :update_setting, action: :update
+      define :record_weather_status, action: :record_weather_status
     end
   end
 end

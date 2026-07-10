@@ -8,9 +8,17 @@ import Dotenvy
 #
 # Skipped in :test so the suite stays hermetic (a developer's local `.env` must
 # not leak a real API key into tests, which would trigger live HTTP calls).
+#
+# A malformed `.env` must not brick every dev mix task, so we use the non-raising
+# `source/2` and simply warn + fall back to the real system environment.
 if config_env() != :test do
-  source!([".env", ".env.#{config_env()}", System.get_env()])
-  |> System.put_env()
+  case source([".env", ".env.#{config_env()}", System.get_env()]) do
+    {:ok, vars} ->
+      System.put_env(vars)
+
+    {:error, reason} ->
+      IO.warn("Ignoring malformed .env (#{inspect(reason)}); using system environment only.")
+  end
 end
 
 # config/runtime.exs is executed for all environments, including

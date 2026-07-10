@@ -58,6 +58,12 @@ defmodule FamilyDashboard.Setting do
       require_atomic? false
       accept @writable
     end
+
+    # System-set weather fetch status (not user-editable in the admin forms).
+    update :record_weather_status do
+      require_atomic? false
+      accept [:weather_last_error, :weather_last_attempted_at]
+    end
   end
 
   validations do
@@ -80,6 +86,16 @@ defmodule FamilyDashboard.Setting do
     end
 
     attribute :units, :string do
+      public? true
+    end
+
+    # System-set status of the most recent weather refresh (surfaced on the
+    # dashboard and in the admin so a blank weather panel is self-explanatory).
+    attribute :weather_last_error, :string do
+      public? true
+    end
+
+    attribute :weather_last_attempted_at, :utc_datetime do
       public? true
     end
 

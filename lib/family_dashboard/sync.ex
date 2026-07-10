@@ -47,31 +47,55 @@ defmodule FamilyDashboard.Sync do
   """
   @spec refresh_weather(keyword()) :: :ok | {:error, term()}
   def refresh_weather(opts \\ []) do
-    if is_nil(Application.get_env(:family_dashboard, :openweather_api_key)) and opts == [] do
-      {:error, :no_api_key}
-    else
-      do_refresh_weather(opts)
+    case Dashboard.current_setting() do
+      {:ok, %{} = setting} -> do_refresh_weather(setting, opts)
+      # No settings row yet — nothing to fetch or record status against.
+      _ -> {:error, :no_location}
     end
   end
 
-  defp do_refresh_weather(opts) do
-    case Dashboard.current_setting() do
-      {:ok, %{latitude: lat, longitude: lon} = setting}
-      when not is_nil(lat) and not is_nil(lon) ->
-        case Weather.fetch(lat, lon, setting.units || "metric", opts) do
+  defp do_refresh_weather(setting, opts) do
+    cond do
+      is_nil(setting.latitude) or is_nil(setting.longitude) ->
+        record_weather_status(setting, "No location configured")
+        {:error, :no_location}
+
+      is_nil(api_key()) and opts == [] ->
+        record_weather_status(setting, "No API key configured (set WEATHER_API_KEY)")
+        {:error, :no_api_key}
+
+      true ->
+        case Weather.fetch(setting.latitude, setting.longitude, setting.units || "metric", opts) do
           {:ok, attrs} ->
             Dashboard.record_weather!(attrs)
+            record_weather_status(setting, nil)
             broadcast("weather", :weather_updated)
             :ok
 
           {:error, reason} ->
+            record_weather_status(setting, humanize_weather_error(reason))
             {:error, reason}
         end
-
-      _ ->
-        {:error, :no_location}
     end
   end
+
+  defp record_weather_status(setting, error) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Dashboard.record_weather_status!(setting, %{
+      weather_last_error: error,
+      weather_last_attempted_at: now
+    })
+  end
+
+  defp humanize_weather_error({:http_status, 401}), do: "Invalid or inactive API key"
+
+  defp humanize_weather_error({:http_status, status}),
+    do: "Weather service returned HTTP #{status}"
+
+  defp humanize_weather_error(reason), do: "Weather fetch failed: #{inspect(reason)}"
+
+  defp api_key, do: Application.get_env(:family_dashboard, :openweather_api_key)
 
   # Delete + reinsert the calendar's occurrences in the window, atomically. Using
   # bang calls means any failure raises and rolls the whole transaction back.

@@ -65,6 +65,20 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     assert render(live) =~ "Piano lesson"
   end
 
+  test "surfaces the weather error when a fetch has failed and there's no reading", %{conn: conn} do
+    {:ok, setting} = Dashboard.current_setting()
+
+    Dashboard.record_weather_status!(setting, %{
+      weather_last_error: "Invalid or inactive API key",
+      weather_last_attempted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    assert html =~ "Weather unavailable"
+    assert html =~ "Invalid or inactive API key"
+  end
+
   test "shows all-day events with an 'All day' label in a negative-offset zone", %{conn: conn} do
     {:ok, setting} = Dashboard.current_setting()
     Dashboard.update_setting!(setting, %{time_zone: "America/Chicago"})
