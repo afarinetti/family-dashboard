@@ -15,6 +15,7 @@ defmodule FamilyDashboard.Dashboard do
       define :create_calendar, action: :create
       define :update_calendar, action: :update
       define :destroy_calendar, action: :destroy
+      define :upsert_calendar, action: :upsert
     end
 
     resource FamilyDashboard.Event do
