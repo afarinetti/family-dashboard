@@ -172,10 +172,12 @@ defmodule FamilyDashboardWeb.DashboardLive do
                   :for={hour <- @weather.forecast["hourly"] || []}
                   class="flex flex-col items-center gap-0.5 flex-1"
                 >
-                  <span class="text-[0.6rem] text-base-content/60">{hour_label(hour["dt"], @tz)}</span>
-                  <span class="text-xl">{weather_emoji(hour["icon"])}</span>
-                  <span class="text-xs font-semibold tabular-nums">{round_temp(hour["temp"])}°</span>
-                  <span :if={pop_pct(hour["pop"])} class="text-[0.6rem] text-info">{pop_pct(hour["pop"])}%</span>
+                  <span class="text-[0.7rem] text-base-content/60">{hour_label(hour["dt"], @tz)}</span>
+                  <span class="text-2xl">{weather_emoji(hour["icon"])}</span>
+                  <span class="text-sm font-semibold tabular-nums">{round_temp(hour["temp"])}°</span>
+                  <span :if={pop_pct(hour["pop"])} class="text-[0.7rem] text-info">{pop_pct(
+                    hour["pop"]
+                  )}%</span>
                 </div>
               </div>
             </div>
@@ -193,10 +195,16 @@ defmodule FamilyDashboardWeb.DashboardLive do
                   :for={day <- @weather.forecast["days"] || []}
                   class="flex flex-col items-center gap-0.5 flex-1"
                 >
-                  <span class="text-[0.6rem] text-base-content/60">{day_short_label(day["dt"], @tz, @today)}</span>
-                  <span class="text-xl">{weather_emoji(day["icon"])}</span>
-                  <span class="text-xs font-semibold tabular-nums">{round_temp(day["high"])}°</span>
-                  <span class="text-[0.55rem] text-base-content/50 tabular-nums">{round_temp(day["low"])}°</span>
+                  <span class="text-[0.7rem] text-base-content/60">{day_short_label(
+                    day["dt"],
+                    @tz,
+                    @today
+                  )}</span>
+                  <span class="text-2xl">{weather_emoji(day["icon"])}</span>
+                  <span class="text-sm font-semibold tabular-nums">{round_temp(day["high"])}°</span>
+                  <span class="text-[0.65rem] text-base-content/50 tabular-nums">{round_temp(
+                    day["low"]
+                  )}°</span>
                 </div>
               </div>
             </div>
