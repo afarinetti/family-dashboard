@@ -231,13 +231,13 @@ defmodule FamilyDashboardWeb.DashboardLive do
         <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
           <!-- Agenda fills the remaining height; two columns fit the portrait width -->
           <section class="flex-1 min-h-0 card bg-base-100 shadow-sm">
-            <div class="card-body min-h-0">
+            <div class="card-body min-h-0 overflow-hidden">
               <h2 class="text-2xl text-base-content/60 mb-2">Upcoming</h2>
               <p :if={@events_by_day == []} class="text-xl text-base-content/50 py-4">
                 Nothing scheduled in the next {@agenda_days} days.
               </p>
-              <div class="grid grid-cols-2 gap-x-10 gap-y-4 overflow-y-auto content-start">
-                <div :for={{date, events} <- @events_by_day} class="break-inside-avoid">
+              <div class="flex flex-col gap-y-4 overflow-hidden">
+                <div :for={{date, events} <- @events_by_day}>
                   <h3 class="text-2xl font-semibold text-base-content/80 border-b border-base-300 pb-1 mb-2">
                     {day_label(date, @today)}
                   </h3>
