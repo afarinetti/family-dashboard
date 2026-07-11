@@ -1,48 +1,50 @@
 defmodule FamilyDashboard.Weather do
   @moduledoc """
-  Facade around the OpenWeatherMap **One Call API 4.0**
-  (`/data/4.0/onecall/current` for current conditions and
-  `/data/4.0/onecall/timeline/1day` for the daily min/max).
+  Facade around the OpenWeatherMap **One Call API 4.0**. Each refresh makes three
+  independent calls:
 
-  `fetch/4` returns a map shaped for `FamilyDashboard.WeatherReading`'s create
-  action. The rest of the app depends only on this module, never on the HTTP
-  shape of OpenWeatherMap.
+    * `/data/4.0/onecall/current`      — current conditions (authoritative)
+    * `/data/4.0/onecall/timeline/1h`  — hourly forecast (next 8 hours)
+    * `/data/4.0/onecall/timeline/1day`— daily forecast (next 7 days)
+
+  `fetch/4` returns a map shaped for `FamilyDashboard.WeatherReading`. The hourly
+  and daily calls are best-effort — a slow/failing forecast endpoint drops that
+  section rather than failing the whole refresh. The rest of the app depends only
+  on this module, never on OpenWeatherMap's HTTP shape.
 
   Note: One Call API 4.0 requires the "One Call by Call" subscription on the
-  OpenWeatherMap account tied to `WEATHER_API_KEY` (1,000 calls/day free tier).
+  account tied to `WEATHER_API_KEY`.
   """
 
   @base_url "https://api.openweathermap.org"
   @current_path "/data/4.0/onecall/current"
+  @hourly_path "/data/4.0/onecall/timeline/1h"
   @daily_path "/data/4.0/onecall/timeline/1day"
 
-  @doc """
-  Fetches current conditions (+ today's high/low) for `lat`/`lon` in the given
-  `units` ("imperial", "metric", or "standard"). Extra `opts` are forwarded to
-  `Req.get/2` (e.g. a `:plug` stub in tests). Returns `{:ok, reading_attrs}` or
-  `{:error, reason}`.
+  @hours 8
+  @days 7
+  # Forecast calls get a bounded timeout so a slow timeline can't stall the worker.
+  @forecast_timeout 8_000
 
-  The current-conditions call is authoritative; the daily call is best-effort,
-  so a temporarily-unavailable forecast only drops high/low, not the whole read.
+  @doc """
+  Fetches current conditions plus the hourly and daily forecast for `lat`/`lon`
+  in the given `units`. Extra `opts` are forwarded to `Req.get/2` (e.g. a `:plug`
+  stub in tests). Returns `{:ok, reading_attrs}` or `{:error, reason}` (only the
+  current call can fail the whole fetch).
   """
   @spec fetch(number(), number(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def fetch(lat, lon, units, opts \\ []) do
     params = [lat: lat, lon: lon, units: units, appid: api_key()]
 
     with {:ok, current} <- get(@current_path, params, opts) do
-      daily =
-        case get(@daily_path, params, opts) do
-          {:ok, body} -> body
-          {:error, _} -> %{}
-        end
-
-      {:ok, normalize(current, daily)}
+      hourly = best_effort(@hourly_path, params, opts)
+      daily = best_effort(@daily_path, params, opts)
+      {:ok, normalize(current, hourly, daily)}
     end
   end
 
   defp get(path, params, opts) do
-    # No per-request retry: Oban owns retries at the job level, and the daily
-    # call is best-effort, so retrying a 500 would only stall the worker.
+    # No per-request retry — Oban owns retries at the job level.
     req_opts = Keyword.merge([base_url: @base_url, url: path, params: params, retry: false], opts)
 
     case Req.get(req_opts) do
@@ -52,14 +54,21 @@ defmodule FamilyDashboard.Weather do
     end
   end
 
-  # One Call 4.0 wraps the current observation in a single-element `data` array.
-  # NB: use `map[key] || []` not `Map.get(map, key, [])` — OWM sends keys with
-  # explicit `null` values (e.g. daily "weather"), and a default only applies
-  # when a key is absent, not when it's present-but-nil.
-  defp normalize(current, daily) do
+  defp best_effort(path, params, opts) do
+    opts = Keyword.put_new(opts, :receive_timeout, @forecast_timeout)
+
+    case get(path, params, opts) do
+      {:ok, body} -> body
+      {:error, _} -> %{}
+    end
+  end
+
+  defp normalize(current, hourly, daily) do
     obs = (current["data"] || []) |> List.first() || %{}
     weather = (obs["weather"] || []) |> List.first() || %{}
-    days = daily_summary(daily)
+    now = obs["dt"] || 0
+
+    days = daily_summary(daily, now)
     today = List.first(days) || %{}
 
     %{
@@ -70,15 +79,38 @@ defmodule FamilyDashboard.Weather do
       icon: weather["icon"],
       high: today["high"],
       low: today["low"],
-      # 4.0 current does not return a place name; the dashboard uses Setting.city_label.
+      # 4.0 current returns no place name; the dashboard uses Setting.city_label.
       location_label: nil,
-      forecast: %{"days" => days}
+      forecast: %{
+        "hourly" => hourly_summary(hourly, now),
+        "days" => days
+      }
     }
   end
 
-  # The `timeline/1day` `data` array holds per-day entries with temp.min/max.
-  defp daily_summary(daily) do
+  # Next @hours forecast hours from now (hourly `temp` is a plain number).
+  defp hourly_summary(hourly, now) do
+    (hourly["data"] || [])
+    |> Enum.filter(&((&1["dt"] || 0) >= now))
+    |> Enum.take(@hours)
+    |> Enum.map(fn hour ->
+      %{
+        "dt" => hour["dt"],
+        "temp" => hour["temp"],
+        "pop" => hour["pop"],
+        "icon" => (hour["weather"] || []) |> List.first() |> icon()
+      }
+    end)
+  end
+
+  # Next @days forecast days including today (daily `temp` is a min/max object;
+  # `weather` may be null, so `icon` can be nil).
+  defp daily_summary(daily, now) do
+    today_start = now - 43_200
+
     (daily["data"] || [])
+    |> Enum.filter(&((&1["dt"] || 0) >= today_start))
+    |> Enum.take(@days)
     |> Enum.map(fn day ->
       temp = day["temp"] || %{}
 

@@ -126,15 +126,31 @@ defmodule FamilyDashboard.SyncTest do
         ]
       }
 
+      hourly = %{
+        "data" => [
+          %{
+            "dt" => 1_783_000_000,
+            "temp" => 70.0,
+            "pop" => 0.0,
+            "weather" => [%{"icon" => "01d"}]
+          }
+        ]
+      }
+
       daily = %{
         "data" => [
-          %{"temp" => %{"min" => 60.0, "max" => 80.0}, "weather" => [%{"icon" => "01d"}]}
+          %{
+            "dt" => 1_783_000_000,
+            "temp" => %{"min" => 60.0, "max" => 80.0},
+            "weather" => [%{"icon" => "01d"}]
+          }
         ]
       }
 
       fn conn ->
         case conn.request_path do
           "/data/4.0/onecall/current" -> Req.Test.json(conn, current)
+          "/data/4.0/onecall/timeline/1h" -> Req.Test.json(conn, hourly)
           "/data/4.0/onecall/timeline/1day" -> Req.Test.json(conn, daily)
         end
       end

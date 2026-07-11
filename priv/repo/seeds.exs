@@ -22,6 +22,7 @@ case Dashboard.current_setting() do
       city_label: "Chicago",
       units: "imperial",
       time_zone: "America/Chicago",
+      weather_refresh_minutes: 15,
       greeting: "Welcome home"
     })
 

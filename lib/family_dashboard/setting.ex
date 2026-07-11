@@ -117,7 +117,7 @@ defmodule FamilyDashboard.Setting do
     attribute :weather_refresh_minutes, :integer do
       public? true
       allow_nil? false
-      default 30
+      default 15
       constraints min: 1
     end
 
