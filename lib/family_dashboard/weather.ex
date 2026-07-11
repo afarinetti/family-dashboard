@@ -7,10 +7,13 @@ defmodule FamilyDashboard.Weather do
     * `/data/4.0/onecall/timeline/1h`  — hourly forecast (next 8 hours)
     * `/data/4.0/onecall/timeline/1day`— daily forecast (next 7 days)
 
-  `fetch/4` returns a map shaped for `FamilyDashboard.WeatherReading`. The hourly
+  `fetch/4` returns a map shaped for `FamilyDashboard.WeatherReading` (plus a
+  nested `:hourly` list shaped for `FamilyDashboard.WeatherHourly`). The hourly
   and daily calls are best-effort — a slow/failing forecast endpoint drops that
   section rather than failing the whole refresh. The rest of the app depends only
-  on this module, never on OpenWeatherMap's HTTP shape.
+  on this module, never on OpenWeatherMap's HTTP shape. Unix timestamps are
+  converted to `DateTime` at this boundary, so nothing downstream ever calls
+  `DateTime.from_unix!/1`.
 
   Note: One Call API 4.0 requires the "One Call by Call" subscription on the
   account tied to `WEATHER_API_KEY`.
@@ -36,7 +39,8 @@ defmodule FamilyDashboard.Weather do
   Fetches current conditions + the hourly forecast for `lat`/`lon`. The daily
   forecast is fetched separately (`fetch_daily/4`) because that endpoint is slow
   and flaky. Extra `opts` are forwarded to `Req.get/2` (e.g. a `:plug` stub in
-  tests). Returns `{:ok, reading_attrs}` (no daily fields) or `{:error, reason}`.
+  tests). Returns `{:ok, reading_attrs}` (reading scalars + a `:hourly` list, no
+  daily fields) or `{:error, reason}`.
   """
   @spec fetch(number(), number(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def fetch(lat, lon, units, opts \\ []) do
@@ -51,7 +55,8 @@ defmodule FamilyDashboard.Weather do
   @doc """
   Fetches just the 7-day forecast. Retries a couple times because OWM's daily
   endpoint intermittently hangs or returns an empty `data` array. Returns
-  `{:ok, days}` (a non-empty list of day summaries) or `{:error, :no_daily}`.
+  `{:ok, days}` (a non-empty list of day attr maps shaped for
+  `FamilyDashboard.WeatherDaily`) or `{:error, :no_daily}`.
   """
   @spec fetch_daily(number(), number(), String.t(), keyword()) ::
           {:ok, [map()]} | {:error, :no_daily}
@@ -115,44 +120,65 @@ defmodule FamilyDashboard.Weather do
       feels_like: obs["feels_like"],
       condition: weather["description"] || weather["main"],
       icon: weather["icon"],
-      # high/low + days come from the separate daily job (see FamilyDashboard.Sync).
-      high: nil,
-      low: nil,
+      humidity: obs["humidity"],
+      pressure: obs["pressure"],
+      dew_point: obs["dew_point"],
+      uvi: obs["uvi"],
+      clouds: obs["clouds"],
+      visibility: obs["visibility"],
+      wind_speed: obs["wind_speed"],
+      wind_deg: obs["wind_deg"],
+      wind_gust: obs["wind_gust"],
+      sunrise: unix_to_datetime(obs["sunrise"]),
+      sunset: unix_to_datetime(obs["sunset"]),
       # 4.0 current returns no place name; the dashboard uses Setting.city_label.
       location_label: nil,
-      forecast: %{"hourly" => hourly_summary(hourly, now), "days" => []}
+      hourly: hourly_summary(hourly, now)
     }
   end
 
-  # Next @hours forecast hours from now (hourly `temp` is a plain number).
+  # Next @hours forecast hours from now.
   defp hourly_summary(hourly, now) do
     (hourly["data"] || [])
     |> Enum.filter(&((&1["dt"] || 0) >= now))
     |> Enum.take(@hours)
     |> Enum.map(fn hour ->
+      weather = (hour["weather"] || []) |> List.first()
+
       %{
-        "dt" => hour["dt"],
-        "temp" => hour["temp"],
-        "pop" => hour["pop"],
-        "icon" => (hour["weather"] || []) |> List.first() |> icon()
+        forecast_time: unix_to_datetime(hour["dt"]),
+        temp: hour["temp"],
+        feels_like: hour["feels_like"],
+        pop: hour["pop"],
+        humidity: hour["humidity"],
+        wind_speed: hour["wind_speed"],
+        icon: icon(weather),
+        condition: condition(weather)
       }
     end)
   end
 
   # The first @days forecast days (the endpoint returns forward-looking data from
-  # now). Daily `temp` is a min/max object; `weather` may be null → `icon` nil.
+  # now). Daily `temp` is a min/max object; `weather` may be null → nil icon/condition.
   defp daily_summary(body) do
     (body["data"] || [])
     |> Enum.take(@days)
     |> Enum.map(fn day ->
       temp = day["temp"] || %{}
+      weather = (day["weather"] || []) |> List.first()
 
       %{
-        "dt" => day["dt"],
-        "high" => temp["max"],
-        "low" => temp["min"],
-        "pop" => day["pop"],
-        "icon" => (day["weather"] || []) |> List.first() |> icon()
+        forecast_date: unix_to_datetime(day["dt"]),
+        high: temp["max"],
+        low: temp["min"],
+        pop: day["pop"],
+        summary: day["summary"],
+        humidity: day["humidity"],
+        wind_speed: day["wind_speed"],
+        sunrise: unix_to_datetime(day["sunrise"]),
+        sunset: unix_to_datetime(day["sunset"]),
+        icon: icon(weather),
+        condition: condition(weather)
       }
     end)
   end
@@ -160,6 +186,11 @@ defmodule FamilyDashboard.Weather do
   defp icon(nil), do: nil
   defp icon(%{"icon" => icon}), do: icon
   defp icon(_), do: nil
+
+  defp condition(nil), do: nil
+  defp condition(%{"description" => d}), do: d
+  defp condition(%{"main" => m}), do: m
+  defp condition(_), do: nil
 
   defp unix_to_datetime(nil), do: nil
   defp unix_to_datetime(unix) when is_integer(unix), do: DateTime.from_unix!(unix)
