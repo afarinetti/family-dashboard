@@ -229,7 +229,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
 
         <!-- Right column (70%): agenda -->
         <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
-          <!-- Agenda fills the remaining height; two columns fit the portrait width -->
+          <!-- Agenda fills the remaining height; a single column clips at the bottom edge -->
           <section class="flex-1 min-h-0 card bg-base-100 shadow-sm">
             <div class="card-body min-h-0 overflow-hidden">
               <h2 class="text-2xl text-base-content/60 mb-2">Upcoming</h2>
