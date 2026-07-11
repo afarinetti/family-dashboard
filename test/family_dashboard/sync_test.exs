@@ -16,7 +16,7 @@ defmodule FamilyDashboard.SyncTest do
   end
 
   # Two events a few days out, safely inside the rolling window.
-  defp two_event_feed do
+  defp two_event_feed(alpha_title \\ "Alpha") do
     d1 = Date.add(Date.utc_today(), 2)
     d2 = Date.add(Date.utc_today(), 5)
 
@@ -25,7 +25,7 @@ defmodule FamilyDashboard.SyncTest do
     UID:e1
     DTSTART:#{ymd(d1)}T100000Z
     DTEND:#{ymd(d1)}T110000Z
-    SUMMARY:Alpha
+    SUMMARY:#{alpha_title}
     END:VEVENT
     BEGIN:VEVENT
     UID:e2
@@ -110,6 +110,121 @@ defmodule FamilyDashboard.SyncTest do
                Sync.sync_calendar(cal, plug: fn conn -> Req.Test.text(conn, two_event_feed()) end)
 
       assert_receive :events_updated
+    end
+
+    test "upserts on re-sync: a changed title updates the existing row instead of duplicating" do
+      cal = create_calendar()
+
+      assert :ok =
+               Sync.sync_calendar(cal, plug: fn conn -> Req.Test.text(conn, two_event_feed()) end)
+
+      [alpha] = cal.id |> window_events() |> Enum.filter(&(&1.title == "Alpha"))
+
+      renamed_feed = fn conn -> Req.Test.text(conn, two_event_feed("Alpha (renamed)")) end
+      assert :ok = Sync.sync_calendar(cal, plug: renamed_feed)
+
+      events = window_events(cal.id)
+      assert length(events) == 2
+      assert Enum.map(events, & &1.title) |> Enum.sort() == ["Alpha (renamed)", "Beta"]
+
+      # Same row, not a duplicate — the id is stable across the upsert.
+      [updated_alpha] = Enum.filter(events, &(&1.title == "Alpha (renamed)"))
+      assert updated_alpha.id == alpha.id
+    end
+
+    test "a recurring series whose UNTIL ends is pruned down to just the remaining occurrences" do
+      cal = create_calendar()
+      d0 = ymd(Date.utc_today())
+
+      recurring =
+        calendar_feed("""
+        BEGIN:VEVENT
+        UID:trash
+        DTSTART;VALUE=DATE:#{d0}
+        RRULE:FREQ=WEEKLY
+        SUMMARY:Trash day
+        END:VEVENT
+        """)
+
+      assert :ok = Sync.sync_calendar(cal, plug: fn conn -> Req.Test.text(conn, recurring) end)
+      assert length(window_events(cal.id)) > 1
+
+      ended =
+        calendar_feed("""
+        BEGIN:VEVENT
+        UID:trash
+        DTSTART;VALUE=DATE:#{d0}
+        RRULE:FREQ=WEEKLY;UNTIL=#{d0}
+        SUMMARY:Trash day
+        END:VEVENT
+        """)
+
+      assert :ok = Sync.sync_calendar(cal, plug: fn conn -> Req.Test.text(conn, ended) end)
+      assert length(window_events(cal.id)) == 1
+    end
+
+    test "a feed that empties out prunes the whole window without raising" do
+      cal = create_calendar()
+
+      assert :ok =
+               Sync.sync_calendar(cal, plug: fn conn -> Req.Test.text(conn, two_event_feed()) end)
+
+      assert length(window_events(cal.id)) == 2
+
+      empty = calendar_feed("")
+      assert :ok = Sync.sync_calendar(cal, plug: fn conn -> Req.Test.text(conn, empty) end)
+
+      assert window_events(cal.id) == []
+    end
+
+    test "a RECURRENCE-ID move leaves no ghost at the old start time" do
+      cal = create_calendar()
+      d0 = Date.utc_today()
+      d1 = Date.add(d0, 7)
+
+      original =
+        calendar_feed("""
+        BEGIN:VEVENT
+        UID:soccer
+        DTSTART:#{ymd(d0)}T100000Z
+        DTEND:#{ymd(d0)}T110000Z
+        RRULE:FREQ=WEEKLY
+        SUMMARY:Soccer practice
+        END:VEVENT
+        """)
+
+      assert :ok = Sync.sync_calendar(cal, plug: fn conn -> Req.Test.text(conn, original) end)
+      assert length(window_events(cal.id)) == 4
+
+      moved =
+        calendar_feed("""
+        BEGIN:VEVENT
+        UID:soccer
+        DTSTART:#{ymd(d0)}T100000Z
+        DTEND:#{ymd(d0)}T110000Z
+        RRULE:FREQ=WEEKLY
+        SUMMARY:Soccer practice
+        END:VEVENT
+        BEGIN:VEVENT
+        UID:soccer
+        RECURRENCE-ID:#{ymd(d1)}T100000Z
+        DTSTART:#{ymd(d1)}T140000Z
+        DTEND:#{ymd(d1)}T150000Z
+        SUMMARY:Soccer practice (moved)
+        END:VEVENT
+        """)
+
+      assert :ok = Sync.sync_calendar(cal, plug: fn conn -> Req.Test.text(conn, moved) end)
+
+      events = window_events(cal.id)
+      # Still 4 occurrences total: the old 10:00 slot on d1 is gone, replaced
+      # by the moved 14:00 one — not left behind as a stale extra row.
+      assert length(events) == 4
+      titles_by_start = Map.new(events, &{&1.starts_at, &1.title})
+      refute Map.has_key?(titles_by_start, DateTime.new!(d1, ~T[10:00:00], "Etc/UTC"))
+
+      assert titles_by_start[DateTime.new!(d1, ~T[14:00:00], "Etc/UTC")] ==
+               "Soccer practice (moved)"
     end
   end
 

@@ -243,6 +243,114 @@ defmodule FamilyDashboard.ICalTest do
     end
   end
 
+  describe "occurrences_in_window/3 with RRULE UNTIL" do
+    test "caps an all-day recurring series at a date-only UNTIL" do
+      # DTSTART;VALUE=DATE + a date-only UNTIL is the RFC 5545 form for an
+      # ended all-day series. The underlying `ical` 3.0.0 parser fails to
+      # parse this UNTIL shape (requires a "T" + time) and silently drops it
+      # to nil, which would otherwise make the series regenerate forever.
+      ics =
+        calendar("""
+        BEGIN:VEVENT
+        UID:trash
+        DTSTART;VALUE=DATE:20260706
+        RRULE:FREQ=WEEKLY;UNTIL=20260714
+        SUMMARY:Trash day
+        END:VEVENT
+        """)
+
+      occ = ICal.occurrences_in_window(ics, ~D[2026-07-06], ~D[2026-07-20])
+
+      assert Enum.map(occ, &DateTime.to_date(&1.starts_at)) == [
+               ~D[2026-07-06],
+               ~D[2026-07-13]
+             ]
+    end
+
+    test "still caps a timed recurring series at a datetime UNTIL" do
+      ics =
+        calendar("""
+        BEGIN:VEVENT
+        UID:soccer
+        DTSTART:20260706T100000Z
+        DTEND:20260706T110000Z
+        RRULE:FREQ=WEEKLY;UNTIL=20260714T100000Z
+        SUMMARY:Soccer practice
+        END:VEVENT
+        """)
+
+      occ = ICal.occurrences_in_window(ics, ~D[2026-07-06], ~D[2026-07-20])
+
+      assert Enum.map(occ, &DateTime.to_date(&1.starts_at)) == [
+               ~D[2026-07-06],
+               ~D[2026-07-13]
+             ]
+    end
+
+    test "does not crash on a datetime UNTIL against an all-day series" do
+      # A datetime UNTIL parses fine on its own, but paired with an all-day
+      # (Date) DTSTART it previously reached for a `:time_zone` field the
+      # library's internal Date struct doesn't have and raised a KeyError.
+      ics =
+        calendar("""
+        BEGIN:VEVENT
+        UID:trash
+        DTSTART;VALUE=DATE:20260706
+        RRULE:FREQ=WEEKLY;UNTIL=20260714T000000Z
+        SUMMARY:Trash day
+        END:VEVENT
+        """)
+
+      occ = ICal.occurrences_in_window(ics, ~D[2026-07-06], ~D[2026-07-20])
+
+      assert Enum.map(occ, &DateTime.to_date(&1.starts_at)) == [
+               ~D[2026-07-06],
+               ~D[2026-07-13]
+             ]
+    end
+
+    test "still respects COUNT" do
+      ics =
+        calendar("""
+        BEGIN:VEVENT
+        UID:trash
+        DTSTART;VALUE=DATE:20260706
+        RRULE:FREQ=WEEKLY;COUNT=2
+        SUMMARY:Trash day
+        END:VEVENT
+        """)
+
+      occ = ICal.occurrences_in_window(ics, ~D[2026-07-06], ~D[2026-07-20])
+
+      assert Enum.map(occ, &DateTime.to_date(&1.starts_at)) == [
+               ~D[2026-07-06],
+               ~D[2026-07-13]
+             ]
+    end
+
+    test "recovers UNTIL from a folded RRULE line" do
+      # RFC 5545 line folding: a CRLF followed by a space/tab is a
+      # continuation of the previous line. Real Google/Apple feeds fold long
+      # RRULE (and UID) lines this way.
+      ics =
+        calendar(
+          "BEGIN:VEVENT\r\n" <>
+            "UID:trash\r\n" <>
+            "DTSTART;VALUE=DATE:20260706\r\n" <>
+            "RRULE:FREQ=WEEKLY;\r\n UNTIL=20260714\r\n" <>
+            "SUMMARY:Trash day\r\n" <>
+            "END:VEVENT"
+        )
+
+      occ = ICal.occurrences_in_window(ics, ~D[2026-07-06], ~D[2026-07-20])
+
+      assert Enum.map(occ, &DateTime.to_date(&1.starts_at)) == [
+               ~D[2026-07-06],
+               ~D[2026-07-13]
+             ]
+    end
+  end
+
   describe "fetch_and_expand/4" do
     test "fetches the feed over HTTP and returns occurrences" do
       ics =

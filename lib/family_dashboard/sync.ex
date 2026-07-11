@@ -167,8 +167,15 @@ defmodule FamilyDashboard.Sync do
 
   defp api_key, do: Application.get_env(:family_dashboard, :openweather_api_key)
 
-  # Delete + reinsert the calendar's occurrences in the window, atomically. Using
-  # bang calls means any failure raises and rolls the whole transaction back.
+  # Upsert the calendar's occurrences in the window, then prune whatever the
+  # feed no longer returns (ended recurrences, cancelled/moved occurrences),
+  # atomically. Using bang calls means any failure raises and rolls the whole
+  # transaction back.
+  #
+  # Upsert (rather than delete-and-reinsert) keeps a stable row per occurrence
+  # across syncs, so an unchanged event never round-trips its `id`/`inserted_at`
+  # — but that means removed occurrences no longer disappear "for free"; the
+  # explicit prune step below restores that self-cleaning property.
   defp replace_window_events(calendar, occurrences, from, to) do
     from_dt = DateTime.new!(from, ~T[00:00:00], "Etc/UTC")
     to_dt = DateTime.new!(to, ~T[23:59:59], "Etc/UTC")
@@ -176,23 +183,37 @@ defmodule FamilyDashboard.Sync do
 
     {:ok, _} =
       FamilyDashboard.Repo.transaction(fn ->
-        FamilyDashboard.Event
-        |> Ash.Query.filter(
-          calendar_id == ^calendar.id and starts_at >= ^from_dt and starts_at <= ^to_dt
-        )
-        |> Ash.bulk_destroy!(:destroy, %{}, strategy: [:stream])
+        kept_ids =
+          Enum.map(occurrences, fn occ ->
+            Dashboard.create_event!(%{
+              calendar_id: calendar.id,
+              uid: occ.uid,
+              title: occ.title,
+              starts_at: occ.starts_at,
+              ends_at: occ.ends_at,
+              all_day: occ.all_day?,
+              location: occ.location
+            }).id
+          end)
 
-        Enum.each(occurrences, fn occ ->
-          Dashboard.create_event!(%{
-            calendar_id: calendar.id,
-            uid: occ.uid,
-            title: occ.title,
-            starts_at: occ.starts_at,
-            ends_at: occ.ends_at,
-            all_day: occ.all_day?,
-            location: occ.location
-          })
-        end)
+        # Ash resolves both `id in []` and `not (id in [])` to "match nothing" —
+        # so an `id not in ^kept_ids` filter with an empty list would silently
+        # prune zero rows instead of the whole window. Branch explicitly
+        # instead of relying on that.
+        prune_query =
+          FamilyDashboard.Event
+          |> Ash.Query.filter(
+            calendar_id == ^calendar.id and starts_at >= ^from_dt and starts_at <= ^to_dt
+          )
+
+        prune_query =
+          if kept_ids == [] do
+            prune_query
+          else
+            Ash.Query.filter(prune_query, id not in ^kept_ids)
+          end
+
+        Ash.bulk_destroy!(prune_query, :destroy, %{}, strategy: [:stream])
 
         Dashboard.update_calendar!(calendar, %{
           last_synced_at: now,

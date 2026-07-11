@@ -12,8 +12,15 @@ defmodule FamilyDashboard.Event do
   actions do
     defaults [:read, :destroy]
 
+    # Upserts on the per-occurrence identity so re-pulled occurrences update
+    # in place (title/time/location changes) instead of creating duplicates.
+    # Sync.replace_window_events/4 prunes anything no longer returned by the
+    # feed, so this stays "self-cleaning" for ended/removed occurrences too.
     create :create do
       primary? true
+      upsert? true
+      upsert_identity :unique_occurrence
+      upsert_fields [:title, :ends_at, :all_day, :location]
       accept [:title, :starts_at, :ends_at, :all_day, :location, :uid, :calendar_id]
     end
 
