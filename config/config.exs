@@ -18,7 +18,13 @@ config :family_dashboard, Oban,
   notifier: Oban.Notifiers.PG,
   queues: [default: 10],
   repo: FamilyDashboard.Repo,
-  plugins: [{Oban.Plugins.Cron, crontab: [{"0 3 * * *", FamilyDashboard.Workers.Backup}]}]
+  plugins: [
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"0 3 * * *", FamilyDashboard.Workers.Backup},
+       {"0 3 * * *", FamilyDashboard.Workers.WeatherReap}
+     ]}
+  ]
 
 # These enable behaviors that will become the default in the next major
 # version of Ash. Setting them now opts your application into the new
