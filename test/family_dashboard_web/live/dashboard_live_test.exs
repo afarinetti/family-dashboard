@@ -58,7 +58,7 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
 
     {:ok, _live, html} = live(conn, ~p"/")
 
-    assert html =~ "border-left-color: var(--color-orange-600)"
+    assert html =~ "border-left-color: oklch(64.6% 0.222 41.116)"
   end
 
   test "falls back to a neutral border when the calendar has no color", %{conn: conn} do
@@ -88,6 +88,30 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
         name: "Family",
         ical_url: "https://x/cal.ics",
         color: "javascript:alert(1)"
+      })
+
+    Dashboard.create_event!(%{
+      calendar_id: calendar.id,
+      uid: "e1",
+      title: "Piano lesson",
+      starts_at: DateTime.new!(day, ~T[15:00:00], "Etc/UTC")
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    refute html =~ "border-left-color"
+  end
+
+  test "falls back to a neutral border for a near-miss shade that isn't in the palette", %{
+    conn: conn
+  } do
+    day = Date.add(Date.utc_today(), 1)
+
+    calendar =
+      Dashboard.create_calendar!(%{
+        name: "Family",
+        ical_url: "https://x/cal.ics",
+        color: "orange-601"
       })
 
     Dashboard.create_event!(%{

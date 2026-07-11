@@ -90,14 +90,36 @@ Each agenda event `<li>` gets a 2px colored left border indicating its source ca
 - The value is a Tailwind palette `color-shade` string (e.g. `"orange-600"`, `"blue-500"`),
   populated manually by the user (no writer exists in the sync worker; this is set
   directly in the DB today).
-- **Rendering approach:** inline `style="border-left-color: var(--color-#{color})"`, NOT
-  a dynamically-built Tailwind utility class. Tailwind v4's content scanner only
-  generates CSS for utility classes it finds as literal strings in source — a class
-  assembled via string interpolation (`"border-#{color}"`) would never be scanned and
-  would silently produce no border. Theme CSS variables (`--color-orange-600`, etc.) are
-  different: they're emitted unconditionally by Tailwind's base theme layer regardless of
-  content scanning (confirmed: `app.css` does not reset the default palette via
-  `--color-*: initial`), so referencing them via `var()` at runtime works.
+- **Rendering approach (corrected after final review — see note below):** inline
+  `style="border-left-color: #{resolved_color}"`, where `resolved_color` is looked up
+  from a static Elixir map of Tailwind's default palette resolved to literal `oklch()`
+  values, NOT a dynamically-built Tailwind utility class and NOT a `var(--color-...)`
+  reference. Tailwind v4's content scanner only generates CSS — including the
+  underlying theme *variables*, not just utility classes — for identifiers it finds as
+  literal strings in scanned source. A class or `var()` name assembled via string
+  interpolation (`"border-#{color}"`, `var(--color-#{color})`) is never scanned, so
+  Tailwind never emits it, and the reference silently resolves to nothing at runtime
+  (an inline `border-left-color: var(--undefined-var)` computes to `currentcolor`, not
+  an error). Storing the resolved color values directly in the app sidesteps this
+  build-time dependency entirely.
+
+  > **Correction (post-implementation):** this section originally claimed theme CSS
+  > variables "are emitted unconditionally by Tailwind's base theme layer regardless of
+  > content scanning." That claim was wrong for this project's actual build output and
+  > was never verified against it at design time — it was a general assumption about
+  > Tailwind v4, not a checked fact. The final whole-branch review caught it by
+  > rebuilding `app.css` and confirming zero `--color-<name>-<shade>` variables exist in
+  > the compiled output (this app never writes a literal `border-<color>-<shade>` class
+  > anywhere in source, so Tailwind's scanner never discovers a reason to generate the
+  > corresponding variable). The bug shipped past task-level review because the tests
+  > asserted the literal HTML string (`html =~ "var(--color-orange-600)"`), which stayed
+  > true whether or not the browser could actually resolve that variable — the tests
+  > never proved the border rendered the right color, only that the attribute text was
+  > present. The fix extracts the real values from Tailwind's own build output (via the
+  > standalone CLI, referencing every `border-<color>-<shade>` utility in a scratch file
+  > so the scanner materializes all 242 combinations) rather than typing them from
+  > memory, and was verified with `getComputedStyle(li).borderLeftColor` in a real
+  > browser render, in both the light and dark theme.
 - **Validation:** before use, `color` is checked against a strict allowlist pattern
   matching Tailwind's actual palette names and shades (e.g.
   `^(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)$`).
