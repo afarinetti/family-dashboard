@@ -9,9 +9,7 @@ defmodule FamilyDashboard.Repo.Migrations.NormalizeWeather do
 
   def up do
     alter table(:weather_readings) do
-      # Attribute removal has been commented out to avoid data loss. See the migration generator documentation for more
-      # If you uncomment this, be sure to also uncomment the corresponding attribute *addition* in the `down` migration
-      # remove :forecast
+      remove :forecast
 
       add :humidity, :bigint
       add :pressure, :bigint
@@ -32,7 +30,8 @@ defmodule FamilyDashboard.Repo.Migrations.NormalizeWeather do
             column: :id,
             name: "weather_hourly_weather_reading_id_fkey",
             type: :uuid
-          ), null: false
+          ),
+          null: false
 
       add :updated_at, :utc_datetime_usec, null: false
       add :inserted_at, :utc_datetime_usec, null: false
@@ -53,7 +52,8 @@ defmodule FamilyDashboard.Repo.Migrations.NormalizeWeather do
             column: :id,
             name: "weather_daily_weather_reading_id_fkey",
             type: :uuid
-          ), null: false
+          ),
+          null: false
 
       add :updated_at, :utc_datetime_usec, null: false
       add :inserted_at, :utc_datetime_usec, null: false
@@ -73,16 +73,7 @@ defmodule FamilyDashboard.Repo.Migrations.NormalizeWeather do
   end
 
   def down do
-    raise "SQLite does not support dropping foreign key constraints. " <>
-            "You will need to manually recreate the `weather_daily` table without the `weather_daily_weather_reading_id_fkey` constraint. " <>
-            "See https://www.techonthenet.com/sqlite/foreign_keys/drop.php for guidance."
-
     drop table(:weather_daily)
-
-    raise "SQLite does not support dropping foreign key constraints. " <>
-            "You will need to manually recreate the `weather_hourly` table without the `weather_hourly_weather_reading_id_fkey` constraint. " <>
-            "See https://www.techonthenet.com/sqlite/foreign_keys/drop.php for guidance."
-
     drop table(:weather_hourly)
 
     alter table(:weather_readings) do
@@ -97,12 +88,6 @@ defmodule FamilyDashboard.Repo.Migrations.NormalizeWeather do
       remove :dew_point
       remove :pressure
       remove :humidity
-      # This is the `down` migration of the statement:
-      #
-      #     remove :forecast
-      #
-
-      # add :forecast, :map
     end
   end
 end
