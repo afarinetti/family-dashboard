@@ -18,16 +18,18 @@ defmodule FamilyDashboard.WeatherTest do
     ]
   }
 
+  # Mirrors the real One Call 4.0 daily shape: `temp` is a rich object and
+  # `weather` is sent as an explicit null (this exact shape crashed a naive parse).
   @daily %{
     "data" => [
       %{
         "dt" => 1_783_000_000,
-        "temp" => %{"min" => 66.0, "max" => 75.0},
-        "weather" => [%{"icon" => "01d"}]
+        "temp" => %{"min" => 66.0, "max" => 75.0, "day" => 72.0, "night" => 68.0},
+        "weather" => nil
       },
       %{
         "dt" => 1_783_086_400,
-        "temp" => %{"min" => 60.0, "max" => 70.0},
+        "temp" => %{"min" => 60.0, "max" => 70.0, "day" => 66.0, "night" => 62.0},
         "weather" => [%{"icon" => "10d"}]
       }
     ]

@@ -53,9 +53,12 @@ defmodule FamilyDashboard.Weather do
   end
 
   # One Call 4.0 wraps the current observation in a single-element `data` array.
+  # NB: use `map[key] || []` not `Map.get(map, key, [])` — OWM sends keys with
+  # explicit `null` values (e.g. daily "weather"), and a default only applies
+  # when a key is absent, not when it's present-but-nil.
   defp normalize(current, daily) do
-    obs = current |> Map.get("data", []) |> List.first() || %{}
-    weather = obs |> Map.get("weather", []) |> List.first() || %{}
+    obs = (current["data"] || []) |> List.first() || %{}
+    weather = (obs["weather"] || []) |> List.first() || %{}
     days = daily_summary(daily)
     today = List.first(days) || %{}
 
@@ -75,8 +78,7 @@ defmodule FamilyDashboard.Weather do
 
   # The `timeline/1day` `data` array holds per-day entries with temp.min/max.
   defp daily_summary(daily) do
-    daily
-    |> Map.get("data", [])
+    (daily["data"] || [])
     |> Enum.map(fn day ->
       temp = day["temp"] || %{}
 
@@ -84,7 +86,7 @@ defmodule FamilyDashboard.Weather do
         "dt" => day["dt"],
         "high" => temp["max"],
         "low" => temp["min"],
-        "icon" => day |> Map.get("weather", []) |> List.first() |> icon()
+        "icon" => (day["weather"] || []) |> List.first() |> icon()
       }
     end)
   end

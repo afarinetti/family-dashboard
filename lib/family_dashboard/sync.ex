@@ -124,14 +124,19 @@ defmodule FamilyDashboard.Sync do
           })
         end)
 
-        Dashboard.update_calendar!(calendar, %{last_synced_at: now, last_error: nil})
+        Dashboard.update_calendar!(calendar, %{
+          last_synced_at: now,
+          last_attempted_at: now,
+          last_error: nil
+        })
       end)
 
     :ok
   end
 
   defp record_error(calendar, reason) do
-    Dashboard.update_calendar!(calendar, %{last_error: inspect(reason)})
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    Dashboard.update_calendar!(calendar, %{last_attempted_at: now, last_error: inspect(reason)})
   end
 
   defp broadcast(topic, message) do

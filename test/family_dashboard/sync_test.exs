@@ -60,6 +60,7 @@ defmodule FamilyDashboard.SyncTest do
 
       reloaded = Dashboard.get_calendar!(cal.id)
       assert reloaded.last_synced_at
+      assert reloaded.last_attempted_at
       assert is_nil(reloaded.last_error)
     end
 
@@ -71,6 +72,7 @@ defmodule FamilyDashboard.SyncTest do
 
       reloaded = Dashboard.get_calendar!(cal.id)
       assert reloaded.last_error
+      assert reloaded.last_attempted_at
       assert is_nil(reloaded.last_synced_at)
       assert window_events(cal.id) == []
     end

@@ -39,12 +39,25 @@ defmodule FamilyDashboard.HeartbeatTest do
       assert job.max_attempts == 5
     end
 
-    test "does not enqueue a calendar synced within the interval" do
+    test "does not enqueue a calendar attempted within the interval" do
       create_setting(%{calendar_sync_minutes: 15})
       recent = DateTime.utc_now() |> DateTime.add(-5, :minute) |> DateTime.truncate(:second)
 
       cal = Dashboard.create_calendar!(%{name: "Fam", ical_url: "https://x/cal.ics"})
-      Dashboard.update_calendar!(cal, %{last_synced_at: recent})
+      Dashboard.update_calendar!(cal, %{last_synced_at: recent, last_attempted_at: recent})
+
+      assert :ok = Heartbeat.run()
+
+      refute_enqueued(worker: CalendarSync)
+    end
+
+    test "does not re-enqueue a recently-failed calendar (attempted but not synced)" do
+      create_setting(%{calendar_sync_minutes: 15})
+      recent = DateTime.utc_now() |> DateTime.add(-5, :minute) |> DateTime.truncate(:second)
+
+      cal = Dashboard.create_calendar!(%{name: "Fam", ical_url: "https://x/cal.ics"})
+      # Failure records an attempt + error but no last_synced_at.
+      Dashboard.update_calendar!(cal, %{last_attempted_at: recent, last_error: "boom"})
 
       assert :ok = Heartbeat.run()
 
@@ -62,12 +75,31 @@ defmodule FamilyDashboard.HeartbeatTest do
   end
 
   describe "run/0 — weather" do
-    test "enqueues a weather refresh when there is no reading yet" do
+    test "enqueues a weather refresh (max_attempts 1) when never attempted" do
       create_setting()
 
       assert :ok = Heartbeat.run()
 
       assert_enqueued(worker: WeatherRefresh)
+      assert [job] = all_enqueued(worker: WeatherRefresh)
+      # Weather does not retry in-cycle — protects the API quota on failure.
+      assert job.max_attempts == 1
+    end
+
+    test "does not re-attempt weather within the refresh interval, even after a failure" do
+      create_setting(%{weather_refresh_minutes: 30})
+      recent = DateTime.utc_now() |> DateTime.add(-5, :minute) |> DateTime.truncate(:second)
+
+      {:ok, setting} = Dashboard.current_setting()
+      # A recent *attempt* (failure records this too) must suppress re-enqueue.
+      Dashboard.record_weather_status!(setting, %{
+        weather_last_error: "Invalid or inactive API key",
+        weather_last_attempted_at: recent
+      })
+
+      assert :ok = Heartbeat.run()
+
+      refute_enqueued(worker: WeatherRefresh)
     end
   end
 end

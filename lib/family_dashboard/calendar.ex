@@ -13,8 +13,24 @@ defmodule FamilyDashboard.Calendar do
     defaults [
       :read,
       :destroy,
-      create: [:name, :ical_url, :color, :active, :last_synced_at, :last_error],
-      update: [:name, :ical_url, :color, :active, :last_synced_at, :last_error]
+      create: [
+        :name,
+        :ical_url,
+        :color,
+        :active,
+        :last_synced_at,
+        :last_attempted_at,
+        :last_error
+      ],
+      update: [
+        :name,
+        :ical_url,
+        :color,
+        :active,
+        :last_synced_at,
+        :last_attempted_at,
+        :last_error
+      ]
     ]
   end
 
@@ -42,6 +58,12 @@ defmodule FamilyDashboard.Calendar do
     end
 
     attribute :last_synced_at, :utc_datetime do
+      public? true
+    end
+
+    # Set on every sync attempt (success or failure); the heartbeat gates on this
+    # so a persistently-failing feed is retried on its interval, not every minute.
+    attribute :last_attempted_at, :utc_datetime do
       public? true
     end
 

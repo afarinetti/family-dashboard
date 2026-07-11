@@ -39,28 +39,36 @@ defmodule FamilyDashboard.Heartbeat do
     end)
   end
 
+  # No setting row yet → no location, nothing to fetch.
+  defp enqueue_weather_if_due(nil, _now), do: :ok
+
   defp enqueue_weather_if_due(setting, now) do
     interval = minutes(setting, :weather_refresh_minutes, @default_weather_minutes) * 60
 
-    if weather_due?(now, interval) do
+    if weather_due?(setting.weather_last_attempted_at, now, interval) do
+      # max_attempts: 1 — weather is ephemeral; a failed fetch waits for the next
+      # cycle rather than retrying in-cycle and burning the API quota.
       %{}
-      |> WeatherRefresh.new(max_attempts: attempts(setting))
+      |> WeatherRefresh.new(max_attempts: 1)
       |> Oban.insert()
     end
   end
 
-  defp calendar_due?(%{last_synced_at: nil}, _now, _interval), do: true
+  # Gate on the last *attempt* (success or failure) so a broken feed is retried
+  # on its interval, not re-enqueued every minute.
+  defp calendar_due?(%{last_attempted_at: nil}, _now, _interval), do: true
 
-  defp calendar_due?(%{last_synced_at: last_synced_at}, now, interval) do
-    DateTime.diff(now, last_synced_at) >= interval
+  defp calendar_due?(%{last_attempted_at: last_attempted_at}, now, interval) do
+    DateTime.diff(now, last_attempted_at) >= interval
   end
 
-  defp weather_due?(now, interval) do
-    case Dashboard.latest_weather() do
-      {:ok, nil} -> true
-      {:ok, reading} -> DateTime.diff(now, reading.inserted_at) >= interval
-      _ -> true
-    end
+  # Gate on the last *attempt* (success or failure), not the last successful
+  # reading — otherwise a persistently-failing fetch is "due" every minute and
+  # hammers the API.
+  defp weather_due?(nil, _now, _interval), do: true
+
+  defp weather_due?(last_attempted_at, now, interval) do
+    DateTime.diff(now, last_attempted_at) >= interval
   end
 
   defp current_setting do
