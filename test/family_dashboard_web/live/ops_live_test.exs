@@ -4,6 +4,7 @@ defmodule FamilyDashboardWeb.OpsLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias FamilyDashboard.Backup
   alias FamilyDashboard.Dashboard
   alias FamilyDashboard.Workers.{CalendarSync, WeatherDailyRefresh, WeatherRefresh}
 
@@ -96,6 +97,77 @@ defmodule FamilyDashboardWeb.OpsLiveTest do
 
       assert_enqueued(worker: CalendarSync, args: %{calendar_id: active.id})
       assert [_one] = all_enqueued(worker: CalendarSync)
+    end
+  end
+
+  describe "backup & restore" do
+    test "save_backup_to_disk writes a file and flashes success", %{conn: conn} do
+      tmp = Path.join(System.tmp_dir!(), "ops_live_backup_test")
+      File.rm_rf!(tmp)
+      original = Application.get_env(:family_dashboard, :backup_dir)
+      Application.put_env(:family_dashboard, :backup_dir, tmp)
+
+      on_exit(fn ->
+        File.rm_rf!(tmp)
+        Application.put_env(:family_dashboard, :backup_dir, original)
+      end)
+
+      {:ok, live, _html} = conn |> authed() |> live(~p"/ops")
+
+      html = render_click(live, "save_backup_to_disk")
+
+      assert html =~ "Backup saved"
+      assert File.ls!(tmp) != []
+    end
+
+    test "request_restore then cancel_restore hides the confirm step", %{conn: conn} do
+      {:ok, live, _html} = conn |> authed() |> live(~p"/ops")
+
+      html = render_click(live, "request_restore")
+      assert html =~ "Yes, overwrite"
+
+      html = render_click(live, "cancel_restore")
+      refute html =~ "Yes, overwrite"
+    end
+
+    test "confirming restore without a selected file shows an error", %{conn: conn} do
+      {:ok, live, _html} = conn |> authed() |> live(~p"/ops")
+
+      render_click(live, "request_restore")
+      html = render_click(live, "confirm_restore")
+
+      assert html =~ "Choose a backup file first."
+    end
+
+    test "restoring an uploaded backup upserts calendars and flashes a summary", %{conn: conn} do
+      cal = Dashboard.create_calendar!(%{name: "Old", ical_url: "https://x/old.ics"})
+
+      backup =
+        Backup.export()
+        |> put_in(["calendars"], [
+          %{
+            "id" => cal.id,
+            "name" => "Restored",
+            "ical_url" => "https://x/old.ics",
+            "color" => nil,
+            "active" => true
+          }
+        ])
+        |> Jason.encode!()
+
+      {:ok, live, _html} = conn |> authed() |> live(~p"/ops")
+
+      file =
+        file_input(live, "#restore-form", :backup, [
+          %{name: "backup.json", content: backup, type: "application/json"}
+        ])
+
+      render_upload(file, "backup.json")
+      render_click(live, "request_restore")
+      html = live |> element("#restore-form") |> render_submit()
+
+      assert html =~ "Restored 1 calendar(s)"
+      assert Dashboard.get_calendar!(cal.id).name == "Restored"
     end
   end
 end
