@@ -37,6 +37,7 @@ defmodule FamilyDashboardWeb.Router do
     ash_admin "/admin"
     oban_dashboard("/oban")
     live "/ops", FamilyDashboardWeb.OpsLive, :index
+    get "/ops/backup.json", FamilyDashboardWeb.BackupController, :download
   end
 
   # Other scopes may use custom stacks.
