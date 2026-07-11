@@ -14,7 +14,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
 
   # Matches only real Tailwind CSS default palette color-shade pairs (e.g. "orange-600"),
   # so an untrusted DB value can never be interpolated into an arbitrary CSS var() name.
-  @color_shade_regex ~r/^(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)$/
+  @color_shade_regex ~r/^(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)\z/
 
   @default_setting %{
     greeting: "Welcome home",
