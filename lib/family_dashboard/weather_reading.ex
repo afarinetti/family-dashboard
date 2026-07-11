@@ -15,7 +15,12 @@ defmodule FamilyDashboard.WeatherReading do
     # 8-hour/7-day widgets.
     read :latest do
       get? true
-      prepare build(sort: [observed_at: :desc], limit: 1, load: [:hourly, :daily])
+
+      prepare build(
+                sort: [observed_at: :desc, inserted_at: :desc],
+                limit: 1,
+                load: [:hourly, :daily]
+              )
     end
 
     @fields [

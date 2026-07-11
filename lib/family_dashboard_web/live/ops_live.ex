@@ -206,6 +206,14 @@ defmodule FamilyDashboardWeb.OpsLive do
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
 
   def handle_event("confirm_restore", _params, socket) do
+    if socket.assigns.confirming_restore != true do
+      {:noreply, assign(socket, restore_error: "Restore was not confirmed.")}
+    else
+      do_confirm_restore(socket)
+    end
+  end
+
+  defp do_confirm_restore(socket) do
     entries =
       consume_uploaded_entries(socket, :backup, fn %{path: path}, _entry ->
         {:ok, File.read!(path)}
