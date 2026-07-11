@@ -36,6 +36,7 @@ defmodule FamilyDashboardWeb.Router do
 
     ash_admin "/admin"
     oban_dashboard("/oban")
+    live "/ops", FamilyDashboardWeb.OpsLive, :index
   end
 
   # Other scopes may use custom stacks.
