@@ -539,10 +539,11 @@ defmodule FamilyDashboardWeb.DashboardLive do
   end
 
   # A calendar's identity color must render as the same hue on every theme (see
-  # the daisyUI color rules' theme-independence exception), so it's rendered via the
-  # raw Tailwind CSS variable rather than a daisyUI semantic token. The stored value
-  # is untrusted (nullable, unconstrained DB text) and must never crash this always-on
-  # display, so it's validated against a strict allowlist before being used at all.
+  # the daisyUI color rules' theme-independence exception), so it's rendered as a
+  # literal resolved color rather than a daisyUI semantic token. The stored value is
+  # untrusted (nullable, unconstrained DB text) and must never crash this always-on
+  # display, so only a value that's an exact key in @color_shade_hex is ever used —
+  # that map doubles as the allowlist.
   defp event_border_style(%{calendar: %{color: color}}) when is_binary(color) do
     case Map.fetch(@color_shade_hex, color) do
       {:ok, hex} -> "border-left-color: #{hex}"
