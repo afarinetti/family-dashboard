@@ -15,6 +15,7 @@ defmodule FamilyDashboard.Dashboard do
       define :create_calendar, action: :create
       define :update_calendar, action: :update
       define :destroy_calendar, action: :destroy
+      define :upsert_calendar, action: :upsert
     end
 
     resource FamilyDashboard.Event do
@@ -26,6 +27,15 @@ defmodule FamilyDashboard.Dashboard do
       define :latest_weather, action: :latest, not_found_error?: false
       define :record_weather, action: :create
       define :update_weather_reading, action: :update
+    end
+
+    resource FamilyDashboard.WeatherHourly do
+      define :create_weather_hourly, action: :create
+    end
+
+    resource FamilyDashboard.WeatherDaily do
+      define :create_weather_daily, action: :create
+      define :list_weather_daily, action: :read
     end
 
     resource FamilyDashboard.Setting do

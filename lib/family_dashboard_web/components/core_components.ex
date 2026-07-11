@@ -95,7 +95,7 @@ defmodule FamilyDashboardWeb.CoreComponents do
       <.button phx-click="go" variant="primary">Send!</.button>
       <.button navigate={~p"/"}>Home</.button>
   """
-  attr :rest, :global, include: ~w(href navigate patch method download name value disabled)
+  attr :rest, :global, include: ~w(href navigate patch method download name value disabled type)
   attr :class, :any
   attr :variant, :string, values: ~w(primary)
   slot :inner_block, required: true
@@ -450,6 +450,26 @@ defmodule FamilyDashboardWeb.CoreComponents do
     ~H"""
     <span class={[@name, @class]} />
     """
+  end
+
+  @doc """
+  A short, human relative-time string for a UTC datetime — `"never"` when nil,
+  `"just now"` under a minute, then minutes/hours/days ago. Used by the ops
+  hub's sync-status panel; pure and independent of any particular time zone
+  (unlike the wall display, an admin page can show UTC-relative deltas).
+  """
+  @spec relative_time(DateTime.t() | nil) :: String.t()
+  def relative_time(nil), do: "never"
+
+  def relative_time(%DateTime{} = dt) do
+    seconds = DateTime.diff(DateTime.utc_now(), dt)
+
+    cond do
+      seconds < 60 -> "just now"
+      seconds < 3600 -> "#{div(seconds, 60)}m ago"
+      seconds < 86_400 -> "#{div(seconds, 3600)}h ago"
+      true -> "#{div(seconds, 86_400)}d ago"
+    end
   end
 
   ## JS Commands

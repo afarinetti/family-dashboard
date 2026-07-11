@@ -124,4 +124,33 @@ defmodule FamilyDashboard.HeartbeatTest do
       refute_enqueued(worker: WeatherDailyRefresh)
     end
   end
+
+  describe "enqueue_weather/1, enqueue_daily/1, enqueue_calendar/3 — force bypass" do
+    test "enqueue_weather(false) is de-duped by the worker's unique window" do
+      Heartbeat.enqueue_weather()
+      Heartbeat.enqueue_weather()
+      assert [_one] = all_enqueued(worker: WeatherRefresh)
+    end
+
+    test "enqueue_weather(true) enqueues even when a job is already pending" do
+      Heartbeat.enqueue_weather()
+      Heartbeat.enqueue_weather(true)
+      assert [_one, _two] = all_enqueued(worker: WeatherRefresh)
+    end
+
+    test "enqueue_daily(true) enqueues even when a job is already pending" do
+      Heartbeat.enqueue_daily()
+      Heartbeat.enqueue_daily(true)
+      assert [_one, _two] = all_enqueued(worker: WeatherDailyRefresh)
+    end
+
+    test "enqueue_calendar(id, attempts, true) enqueues even when a job is already pending" do
+      cal = Dashboard.create_calendar!(%{name: "Fam", ical_url: "https://x/cal.ics"})
+
+      Heartbeat.enqueue_calendar(cal.id, 3)
+      Heartbeat.enqueue_calendar(cal.id, 3, true)
+
+      assert [_one, _two] = all_enqueued(worker: CalendarSync, args: %{calendar_id: cal.id})
+    end
+  end
 end

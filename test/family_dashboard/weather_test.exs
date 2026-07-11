@@ -13,6 +13,17 @@ defmodule FamilyDashboard.WeatherTest do
         "dt" => @now,
         "temp" => 71.2,
         "feels_like" => 69.8,
+        "humidity" => 55,
+        "pressure" => 1013,
+        "dew_point" => 60.1,
+        "uvi" => 3.2,
+        "clouds" => 75,
+        "visibility" => 10_000,
+        "wind_speed" => 8.5,
+        "wind_deg" => 210,
+        "wind_gust" => 12.0,
+        "sunrise" => @now - 3600,
+        "sunset" => @now + 36_000,
         "weather" => [%{"description" => "overcast clouds", "icon" => "04d"}]
       }
     ]
@@ -25,8 +36,11 @@ defmodule FamilyDashboard.WeatherTest do
         %{
           "dt" => @now + i * 3600,
           "temp" => 70.0 + i,
+          "feels_like" => 68.0 + i,
+          "humidity" => 50 + i,
+          "wind_speed" => 5.0 + i,
           "pop" => 0.1 * i,
-          "weather" => [%{"icon" => "01d"}]
+          "weather" => [%{"icon" => "01d", "description" => "clear sky"}]
         }
       end
   }
@@ -39,7 +53,13 @@ defmodule FamilyDashboard.WeatherTest do
           "dt" => @now + i * 86_400,
           "temp" => %{"min" => 60.0 + i, "max" => 80.0 + i, "day" => 72.0},
           "pop" => 0.1 * i,
-          "weather" => if(rem(i, 2) == 0, do: nil, else: [%{"icon" => "10d"}])
+          "summary" => "Mostly sunny",
+          "humidity" => 45 + i,
+          "wind_speed" => 6.0 + i,
+          "sunrise" => @now + i * 86_400 - 3600,
+          "sunset" => @now + i * 86_400 + 36_000,
+          "weather" =>
+            if(rem(i, 2) == 0, do: nil, else: [%{"icon" => "10d", "description" => "light rain"}])
         }
       end
   }
@@ -55,7 +75,7 @@ defmodule FamilyDashboard.WeatherTest do
   end
 
   describe "fetch/4 (current + hourly)" do
-    test "returns current conditions" do
+    test "returns current conditions, including fields previously discarded" do
       assert {:ok, r} = Weather.fetch(41.88, -87.63, "imperial", plug: stub_plug())
 
       assert r.temp == 71.2
@@ -63,24 +83,31 @@ defmodule FamilyDashboard.WeatherTest do
       assert r.condition == "overcast clouds"
       assert r.icon == "04d"
       assert %DateTime{} = r.observed_at
+      assert r.humidity == 55
+      assert r.pressure == 1013
+      assert r.dew_point == 60.1
+      assert r.uvi == 3.2
+      assert r.clouds == 75
+      assert r.visibility == 10_000
+      assert r.wind_speed == 8.5
+      assert r.wind_deg == 210
+      assert r.wind_gust == 12.0
+      assert %DateTime{} = r.sunrise
+      assert %DateTime{} = r.sunset
     end
 
-    test "includes the next 8 forecast hours" do
+    test "includes the next 8 forecast hours as structured attrs" do
       assert {:ok, r} = Weather.fetch(41.88, -87.63, "imperial", plug: stub_plug())
 
-      hourly = r.forecast["hourly"]
-      assert length(hourly) == 8
-      assert List.first(hourly)["temp"] == 70.0
-      assert List.first(hourly)["icon"] == "01d"
-      assert is_number(List.first(hourly)["pop"])
-    end
-
-    test "does not include daily data (fetched separately by fetch_daily/4)" do
-      assert {:ok, r} = Weather.fetch(41.88, -87.63, "imperial", plug: stub_plug())
-
-      assert r.forecast["days"] == []
-      assert is_nil(r.high)
-      assert is_nil(r.low)
+      assert length(r.hourly) == 8
+      first = List.first(r.hourly)
+      assert first.temp == 70.0
+      assert first.icon == "01d"
+      assert first.condition == "clear sky"
+      assert is_number(first.pop)
+      assert is_number(first.humidity)
+      assert is_number(first.wind_speed)
+      assert %DateTime{} = first.forecast_time
     end
 
     test "current conditions still return when the hourly call fails (best-effort)" do
@@ -93,7 +120,7 @@ defmodule FamilyDashboard.WeatherTest do
 
       assert {:ok, r} = Weather.fetch(41.88, -87.63, "imperial", plug: plug)
       assert r.temp == 71.2
-      assert r.forecast["hourly"] == []
+      assert r.hourly == []
     end
 
     test "returns an error when the current call is unauthorized" do
@@ -105,16 +132,20 @@ defmodule FamilyDashboard.WeatherTest do
   end
 
   describe "fetch_daily/4" do
-    test "returns the next 7 days with high/low and icons" do
+    test "returns the next 7 days as structured attrs" do
       assert {:ok, days} = Weather.fetch_daily(41.88, -87.63, "imperial", plug: stub_plug())
 
       assert length(days) == 7
-      assert List.first(days)["high"] == 80.0
-      assert List.first(days)["low"] == 60.0
-      assert is_number(List.first(days)["pop"])
-      # null daily "weather" yields a nil icon, a non-null one yields the icon
-      assert List.first(days)["icon"] == nil
-      assert Enum.at(days, 1)["icon"] == "10d"
+      first = List.first(days)
+      assert first.high == 80.0
+      assert first.low == 60.0
+      assert is_number(first.pop)
+      assert first.summary == "Mostly sunny"
+      assert %DateTime{} = first.forecast_date
+      # null daily "weather" yields a nil icon/condition, a non-null one yields values
+      assert first.icon == nil
+      assert Enum.at(days, 1).icon == "10d"
+      assert Enum.at(days, 1).condition == "light rain"
     end
 
     test "returns {:error, :no_daily} when the endpoint returns empty data" do

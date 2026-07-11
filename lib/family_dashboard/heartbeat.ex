@@ -5,6 +5,11 @@ defmodule FamilyDashboard.Heartbeat do
   It reads the live `Setting` row and enqueues sync work only for what is
   actually *due* per the configured intervals — so the effective sync cadence
   and retry count are editable in the settings panel without a redeploy.
+
+  `enqueue_weather/1`, `enqueue_daily/1`, and `enqueue_calendar/3` are also used
+  directly by the ops hub's manual "sync now" buttons (`force?: true`), which
+  bypass each worker's Oban uniqueness window so a click always enqueues even
+  if a job is already pending — see `FamilyDashboardWeb.OpsLive`.
   """
 
   alias FamilyDashboard.Dashboard
@@ -27,6 +32,37 @@ defmodule FamilyDashboard.Heartbeat do
     :ok
   end
 
+  @doc "Enqueues a weather refresh. `force?: true` bypasses the worker's unique window."
+  @spec enqueue_weather(boolean()) :: :ok
+  def enqueue_weather(force? \\ false) do
+    # max_attempts: 1 — weather is ephemeral; a failed fetch waits for the next
+    # cycle rather than retrying in-cycle and burning the API quota.
+    opts = [max_attempts: 1] ++ force_opts(force?)
+    %{} |> WeatherRefresh.new(opts) |> Oban.insert()
+    :ok
+  end
+
+  @doc "Enqueues a daily-forecast refresh. `force?: true` bypasses the worker's unique window."
+  @spec enqueue_daily(boolean()) :: :ok
+  def enqueue_daily(force? \\ false) do
+    %{} |> WeatherDailyRefresh.new(force_opts(force?)) |> Oban.insert()
+    :ok
+  end
+
+  @doc "Enqueues a sync for one calendar. `force?: true` bypasses the worker's unique window."
+  @spec enqueue_calendar(String.t(), pos_integer(), boolean()) :: :ok
+  def enqueue_calendar(calendar_id, max_attempts, force? \\ false) do
+    opts = [max_attempts: max_attempts] ++ force_opts(force?)
+    %{calendar_id: calendar_id} |> CalendarSync.new(opts) |> Oban.insert()
+    :ok
+  end
+
+  # `unique: false` on `.new/2` bypasses the worker's compile-time unique clause
+  # for this single insert, so a manual click always enqueues instead of being
+  # silently absorbed by a pending/executing job's uniqueness window.
+  defp force_opts(true), do: [unique: false]
+  defp force_opts(false), do: []
+
   defp enqueue_due_calendars(setting, now) do
     interval = minutes(setting, :calendar_sync_minutes, @default_calendar_minutes) * 60
     max_attempts = attempts(setting)
@@ -34,25 +70,17 @@ defmodule FamilyDashboard.Heartbeat do
     Dashboard.list_calendars!()
     |> Enum.filter(& &1.active)
     |> Enum.filter(&calendar_due?(&1, now, interval))
-    |> Enum.each(fn calendar ->
-      %{calendar_id: calendar.id}
-      |> CalendarSync.new(max_attempts: max_attempts)
-      |> Oban.insert()
-    end)
+    |> Enum.each(&enqueue_calendar(&1.id, max_attempts))
   end
 
-  # No setting row yet → no location, nothing to fetch.
+  # No setting row yet — nothing to fetch or record status against.
   defp enqueue_weather_if_due(nil, _now), do: :ok
 
   defp enqueue_weather_if_due(setting, now) do
     interval = minutes(setting, :weather_refresh_minutes, @default_weather_minutes) * 60
 
     if weather_due?(setting.weather_last_attempted_at, now, interval) do
-      # max_attempts: 1 — weather is ephemeral; a failed fetch waits for the next
-      # cycle rather than retrying in-cycle and burning the API quota.
-      %{}
-      |> WeatherRefresh.new(max_attempts: 1)
-      |> Oban.insert()
+      enqueue_weather()
     end
   end
 
@@ -64,7 +92,7 @@ defmodule FamilyDashboard.Heartbeat do
     interval = minutes(setting, :daily_refresh_minutes, @default_daily_minutes) * 60
 
     if weather_due?(setting.daily_last_attempted_at, now, interval) do
-      Oban.insert(WeatherDailyRefresh.new(%{}))
+      enqueue_daily()
     end
   end
 

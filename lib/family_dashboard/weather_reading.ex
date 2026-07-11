@@ -10,10 +10,17 @@ defmodule FamilyDashboard.WeatherReading do
   end
 
   actions do
-    # The most recent reading; the dashboard renders this one.
+    # The most recent reading; the dashboard renders this one. Loads its
+    # forecast children so callers never need a second query for the
+    # 8-hour/7-day widgets.
     read :latest do
       get? true
-      prepare build(sort: [observed_at: :desc], limit: 1)
+
+      prepare build(
+                sort: [observed_at: :desc, inserted_at: :desc],
+                limit: 1,
+                load: [:hourly, :daily]
+              )
     end
 
     @fields [
@@ -24,14 +31,24 @@ defmodule FamilyDashboard.WeatherReading do
       :icon,
       :high,
       :low,
-      :forecast,
+      :humidity,
+      :pressure,
+      :dew_point,
+      :uvi,
+      :clouds,
+      :visibility,
+      :wind_speed,
+      :wind_deg,
+      :wind_gust,
+      :sunrise,
+      :sunset,
       :location_label
     ]
 
     defaults [:read, :destroy, create: @fields]
 
-    # Non-atomic: the `forecast` map can't be bound as a raw SQL param in an
-    # atomic update (SQLite). Used by the daily job to patch days/high/low.
+    # Non-atomic: kept from the original resource since callers pass a full
+    # attrs map, not an atomic-safe expression update.
     update :update do
       primary? true
       require_atomic? false
@@ -71,7 +88,47 @@ defmodule FamilyDashboard.WeatherReading do
       public? true
     end
 
-    attribute :forecast, :map do
+    attribute :humidity, :integer do
+      public? true
+    end
+
+    attribute :pressure, :integer do
+      public? true
+    end
+
+    attribute :dew_point, :float do
+      public? true
+    end
+
+    attribute :uvi, :float do
+      public? true
+    end
+
+    attribute :clouds, :integer do
+      public? true
+    end
+
+    attribute :visibility, :integer do
+      public? true
+    end
+
+    attribute :wind_speed, :float do
+      public? true
+    end
+
+    attribute :wind_deg, :integer do
+      public? true
+    end
+
+    attribute :wind_gust, :float do
+      public? true
+    end
+
+    attribute :sunrise, :utc_datetime do
+      public? true
+    end
+
+    attribute :sunset, :utc_datetime do
       public? true
     end
 
@@ -80,5 +137,17 @@ defmodule FamilyDashboard.WeatherReading do
     end
 
     timestamps()
+  end
+
+  relationships do
+    has_many :hourly, FamilyDashboard.WeatherHourly do
+      destination_attribute :weather_reading_id
+      sort forecast_time: :asc
+    end
+
+    has_many :daily, FamilyDashboard.WeatherDaily do
+      destination_attribute :weather_reading_id
+      sort forecast_date: :asc
+    end
   end
 end
