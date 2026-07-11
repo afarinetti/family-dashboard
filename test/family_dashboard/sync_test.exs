@@ -271,8 +271,7 @@ defmodule FamilyDashboard.SyncTest do
       end
     end
 
-    test "records a reading and broadcasts when a location is configured" do
-      # The test DB is seeded with a Chicago location via ash.setup.
+    test "records a reading (with hourly rows) and broadcasts when a location is configured" do
       Phoenix.PubSub.subscribe(FamilyDashboard.PubSub, "weather")
 
       assert :ok = Sync.refresh_weather(plug: weather_plug())
@@ -281,39 +280,41 @@ defmodule FamilyDashboard.SyncTest do
       reading = Dashboard.latest_weather!()
       assert reading.temp == 70.0
       assert reading.condition == "clear sky"
+      assert length(reading.hourly) == 1
+      assert List.first(reading.hourly).temp == 70.0
     end
 
     test "the current+hourly refresh does not fetch daily data" do
       assert :ok = Sync.refresh_weather(plug: weather_plug())
-      assert Dashboard.latest_weather!().forecast["days"] == []
+      assert Dashboard.latest_weather!().daily == []
     end
   end
 
   describe "refresh_daily/1" do
     test "patches the latest reading's 7-day and today's high/low" do
-      # A reading must exist first (the daily job patches the latest one).
       assert :ok = Sync.refresh_weather(plug: weather_plug())
-      assert Dashboard.latest_weather!().forecast["days"] == []
+      assert Dashboard.latest_weather!().daily == []
 
       assert :ok = Sync.refresh_daily(plug: weather_plug())
 
       reading = Dashboard.latest_weather!()
-      assert length(reading.forecast["days"]) == 1
+      assert length(reading.daily) == 1
       assert reading.high == 80.0
       assert reading.low == 60.0
       # hourly data is untouched by the daily job
-      assert reading.forecast["hourly"] != []
+      assert reading.hourly != []
     end
 
-    test "a later current+hourly refresh carries the 7-day forward" do
+    test "a later current+hourly refresh carries the 7-day forward onto the new reading" do
       assert :ok = Sync.refresh_weather(plug: weather_plug())
       assert :ok = Sync.refresh_daily(plug: weather_plug())
-      assert length(Dashboard.latest_weather!().forecast["days"]) == 1
+      assert length(Dashboard.latest_weather!().daily) == 1
 
-      # New current+hourly reading keeps the last known days + high/low.
+      # New current+hourly reading is a NEW row that carries the last known days
+      # + high/low forward, so the widget stays populated between daily runs.
       assert :ok = Sync.refresh_weather(plug: weather_plug())
       reading = Dashboard.latest_weather!()
-      assert length(reading.forecast["days"]) == 1
+      assert length(reading.daily) == 1
       assert reading.high == 80.0
     end
 
