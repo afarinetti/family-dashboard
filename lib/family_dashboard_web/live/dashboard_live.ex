@@ -449,31 +449,34 @@ defmodule FamilyDashboardWeb.DashboardLive do
           <section :if={@weather} class="card card-sm bg-base-100 shadow-sm shrink-0">
             <div class="card-body">
               <.card_title label="8 hour" />
-              <p :if={@weather.forecast["hourly"] in [nil, []]} class="text-xs text-base-content/40">
+              <p :if={@weather.hourly == []} class="text-xs text-base-content/40">
                 Hourly forecast unavailable.
               </p>
               <div class="flex flex-col gap-2.5">
                 <div
-                  :for={hour <- @weather.forecast["hourly"] || []}
+                  :for={hour <- @weather.hourly}
                   class="grid grid-cols-[3.75rem_2.125rem_2.75rem_1fr_2.625rem] items-center gap-2 min-h-[2rem]"
                 >
                   <span class="text-lg font-semibold tabular-nums whitespace-nowrap">
-                    <span class="inline-block min-w-[2ch] text-right">{hour_number(hour["dt"], @tz)}</span>
+                    <span class="inline-block min-w-[2ch] text-right">{hour_number(
+                      hour.forecast_time,
+                      @tz
+                    )}</span>
                     <span>{hour_meridiem(
-                      hour["dt"],
+                      hour.forecast_time,
                       @tz
                     )}</span>
                   </span>
-                  <span class="text-2xl text-center">{weather_emoji(hour["icon"])}</span>
-                  <span class="text-lg font-bold text-right tabular-nums">{round_temp(hour["temp"])}°</span>
+                  <span class="text-2xl text-center">{weather_emoji(hour.icon)}</span>
+                  <span class="text-lg font-bold text-right tabular-nums">{round_temp(hour.temp)}°</span>
                   <span class="relative h-[7px] rounded-full bg-base-300">
                     <span
                       class="absolute inset-y-0 left-0 rounded-full"
                       style={hourly_bar_style(hour, @hourly_min, @hourly_max)}
                     ></span>
                   </span>
-                  <span :if={pop_pct(hour["pop"])} class="text-base text-info text-right tabular-nums">
-                    {pop_pct(hour["pop"])}%
+                  <span :if={pop_pct(hour.pop)} class="text-base text-info text-right tabular-nums">
+                    {pop_pct(hour.pop)}%
                   </span>
                 </div>
               </div>
@@ -484,18 +487,18 @@ defmodule FamilyDashboardWeb.DashboardLive do
           <section :if={@weather} class="card card-sm bg-base-100 shadow-sm shrink-0">
             <div class="card-body">
               <.card_title label="7-day" />
-              <p :if={@weather.forecast["days"] in [nil, []]} class="text-xs text-base-content/40">
+              <p :if={@weather.daily == []} class="text-xs text-base-content/40">
                 Daily forecast unavailable right now.
               </p>
               <div class="flex flex-col gap-2.5">
                 <div
-                  :for={day <- @weather.forecast["days"] || []}
+                  :for={day <- @weather.daily}
                   class="grid grid-cols-[3.5rem_2.125rem_2.375rem_1fr_2.375rem_2.625rem] items-center gap-2 min-h-[2rem]"
                 >
-                  <span class="text-lg font-semibold">{day_short_label(day["dt"], @tz, @today)}</span>
-                  <span class="text-2xl text-center">{weather_emoji(day["icon"])}</span>
+                  <span class="text-lg font-semibold">{day_short_label(day.forecast_date, @tz, @today)}</span>
+                  <span class="text-2xl text-center">{weather_emoji(day.icon)}</span>
                   <span class="text-lg text-base-content/70 text-right tabular-nums">{round_temp(
-                    day["low"]
+                    day.low
                   )}°</span>
                   <span class="relative h-[7px] rounded-full bg-base-300">
                     <span
@@ -507,9 +510,9 @@ defmodule FamilyDashboardWeb.DashboardLive do
                       style={daily_avg_marker_style(day, @daily_min, @daily_max)}
                     ></span>
                   </span>
-                  <span class="text-lg font-bold text-right tabular-nums">{round_temp(day["high"])}°</span>
-                  <span :if={pop_pct(day["pop"])} class="text-base text-info text-right tabular-nums">
-                    {pop_pct(day["pop"])}%
+                  <span class="text-lg font-bold text-right tabular-nums">{round_temp(day.high)}°</span>
+                  <span :if={pop_pct(day.pop)} class="text-base text-info text-right tabular-nums">
+                    {pop_pct(day.pop)}%
                   </span>
                 </div>
               </div>
@@ -630,10 +633,10 @@ defmodule FamilyDashboardWeb.DashboardLive do
   # scanned top to bottom, not just decoration.
 
   defp hourly_temps(nil), do: []
-  defp hourly_temps(weather), do: (weather.forecast["hourly"] || []) |> Enum.map(& &1["temp"])
+  defp hourly_temps(weather), do: weather.hourly |> Enum.map(& &1.temp)
 
   defp daily_days(nil), do: []
-  defp daily_days(weather), do: weather.forecast["days"] || []
+  defp daily_days(weather), do: weather.daily
 
   defp temp_bounds(temps) do
     case Enum.reject(temps, &is_nil/1) do
@@ -645,8 +648,8 @@ defmodule FamilyDashboardWeb.DashboardLive do
   # Padded a few degrees past the week's actual low/high so bars don't touch the
   # track edges.
   defp daily_temp_bounds(days) do
-    lows = days |> Enum.map(& &1["low"]) |> Enum.reject(&is_nil/1)
-    highs = days |> Enum.map(& &1["high"]) |> Enum.reject(&is_nil/1)
+    lows = days |> Enum.map(& &1.low) |> Enum.reject(&is_nil/1)
+    highs = days |> Enum.map(& &1.high) |> Enum.reject(&is_nil/1)
 
     case {lows, highs} do
       {[], _} -> {0, 1}
@@ -677,15 +680,15 @@ defmodule FamilyDashboardWeb.DashboardLive do
   end
 
   defp hourly_bar_style(hour, min, max) do
-    temp = hour["temp"]
+    temp = hour.temp
     "width: #{pct_between(temp, min, max)}%; background: #{temp_color(temp, min, max)};"
   end
 
   defp daily_range_style(day, min, max) do
-    left = pct_between(day["low"], min, max)
-    right = pct_between(day["high"], min, max)
-    low_color = temp_color(day["low"], min, max)
-    high_color = temp_color(day["high"], min, max)
+    left = pct_between(day.low, min, max)
+    right = pct_between(day.high, min, max)
+    low_color = temp_color(day.low, min, max)
+    high_color = temp_color(day.high, min, max)
 
     "left: #{left}%; width: #{right - left}%; " <>
       "background: linear-gradient(to right, #{low_color}, #{high_color});"
@@ -695,7 +698,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
     "left: #{pct_between(day_average(day), min, max)}%;"
   end
 
-  defp day_average(%{"low" => low, "high" => high}) when is_number(low) and is_number(high),
+  defp day_average(%{low: low, high: high}) when is_number(low) and is_number(high),
     do: (low + high) / 2
 
   defp day_average(_day), do: nil
@@ -706,19 +709,19 @@ defmodule FamilyDashboardWeb.DashboardLive do
   defp hour_number(nil, _tz), do: ""
 
   defp hour_number(dt, tz) do
-    dt |> DateTime.from_unix!() |> DateTime.shift_zone!(tz) |> Calendar.strftime("%-I")
+    dt |> DateTime.shift_zone!(tz) |> Calendar.strftime("%-I")
   end
 
   defp hour_meridiem(nil, _tz), do: ""
 
   defp hour_meridiem(dt, tz) do
-    dt |> DateTime.from_unix!() |> DateTime.shift_zone!(tz) |> Calendar.strftime("%p")
+    dt |> DateTime.shift_zone!(tz) |> Calendar.strftime("%p")
   end
 
   defp day_short_label(nil, _tz, _today), do: ""
 
   defp day_short_label(dt, tz, today) do
-    date = dt |> DateTime.from_unix!() |> DateTime.shift_zone!(tz) |> DateTime.to_date()
+    date = dt |> DateTime.shift_zone!(tz) |> DateTime.to_date()
     if date == today, do: "Today", else: Calendar.strftime(date, "%a")
   end
 
