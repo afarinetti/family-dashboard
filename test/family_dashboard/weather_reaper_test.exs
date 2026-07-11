@@ -36,12 +36,14 @@ defmodule FamilyDashboard.WeatherReaperTest do
     add_daily(old)
 
     recent = create_reading(DateTime.utc_now() |> DateTime.truncate(:second))
+    recent_hourly = add_hourly(recent)
+    recent_daily = add_daily(recent)
 
     assert :ok = WeatherReaper.reap()
 
     assert reading_ids() == [recent.id]
-    assert FamilyDashboard.WeatherHourly |> Ash.read!() == []
-    assert FamilyDashboard.WeatherDaily |> Ash.read!() == []
+    assert FamilyDashboard.WeatherHourly |> Ash.read!() |> Enum.map(& &1.id) == [recent_hourly.id]
+    assert FamilyDashboard.WeatherDaily |> Ash.read!() |> Enum.map(& &1.id) == [recent_daily.id]
   end
 
   test "keeps readings within the retention window" do
