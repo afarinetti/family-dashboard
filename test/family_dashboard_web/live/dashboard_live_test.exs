@@ -39,6 +39,69 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     assert html =~ "Piano lesson"
   end
 
+  test "colors an event's border using its calendar's Tailwind color", %{conn: conn} do
+    day = Date.add(Date.utc_today(), 1)
+
+    calendar =
+      Dashboard.create_calendar!(%{
+        name: "Family",
+        ical_url: "https://x/cal.ics",
+        color: "orange-600"
+      })
+
+    Dashboard.create_event!(%{
+      calendar_id: calendar.id,
+      uid: "e1",
+      title: "Piano lesson",
+      starts_at: DateTime.new!(day, ~T[15:00:00], "Etc/UTC")
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    assert html =~ "border-left-color: var(--color-orange-600)"
+  end
+
+  test "falls back to a neutral border when the calendar has no color", %{conn: conn} do
+    day = Date.add(Date.utc_today(), 1)
+    calendar = Dashboard.create_calendar!(%{name: "Family", ical_url: "https://x/cal.ics"})
+
+    Dashboard.create_event!(%{
+      calendar_id: calendar.id,
+      uid: "e1",
+      title: "Piano lesson",
+      starts_at: DateTime.new!(day, ~T[15:00:00], "Etc/UTC")
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    refute html =~ "border-left-color"
+    assert html =~ "border-base-300"
+  end
+
+  test "falls back to a neutral border when the calendar color isn't a valid Tailwind shade", %{
+    conn: conn
+  } do
+    day = Date.add(Date.utc_today(), 1)
+
+    calendar =
+      Dashboard.create_calendar!(%{
+        name: "Family",
+        ical_url: "https://x/cal.ics",
+        color: "javascript:alert(1)"
+      })
+
+    Dashboard.create_event!(%{
+      calendar_id: calendar.id,
+      uid: "e1",
+      title: "Piano lesson",
+      starts_at: DateTime.new!(day, ~T[15:00:00], "Etc/UTC")
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    refute html =~ "border-left-color"
+  end
+
   test "live-updates the agenda when an events broadcast arrives", %{conn: conn} do
     {:ok, live, _html} = live(conn, ~p"/")
     refute render(live) =~ "Piano lesson"

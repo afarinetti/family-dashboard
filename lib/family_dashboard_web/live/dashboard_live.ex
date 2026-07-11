@@ -12,6 +12,10 @@ defmodule FamilyDashboardWeb.DashboardLive do
   @tick_ms 30_000
   @agenda_days 7
 
+  # Matches only real Tailwind CSS default palette color-shade pairs (e.g. "orange-600"),
+  # so an untrusted DB value can never be interpolated into an arbitrary CSS var() name.
+  @color_shade_regex ~r/^(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)$/
+
   @default_setting %{
     greeting: "Welcome home",
     city_label: nil,
@@ -242,7 +246,11 @@ defmodule FamilyDashboardWeb.DashboardLive do
                     {day_label(date, @today)}
                   </h3>
                   <ul class="space-y-2">
-                    <li :for={event <- events} class="flex items-baseline gap-3 text-xl">
+                    <li
+                      :for={event <- events}
+                      class="flex items-baseline gap-3 text-xl border-l-2 border-base-300 pl-3"
+                      style={event_border_style(event)}
+                    >
                       <span class="w-28 shrink-0 text-base-content/60 tabular-nums">
                         {event_time(event, @tz)}
                       </span>
@@ -280,6 +288,19 @@ defmodule FamilyDashboardWeb.DashboardLive do
   defp event_time(%{starts_at: starts_at}, tz) do
     starts_at |> DateTime.shift_zone!(tz) |> Calendar.strftime("%-I:%M %p")
   end
+
+  # A calendar's identity color must render as the same hue on every theme (see
+  # the daisyUI color rules' theme-independence exception), so it's rendered via the
+  # raw Tailwind CSS variable rather than a daisyUI semantic token. The stored value
+  # is untrusted (nullable, unconstrained DB text) and must never crash this always-on
+  # display, so it's validated against a strict allowlist before being used at all.
+  defp event_border_style(%{calendar: %{color: color}}) when is_binary(color) do
+    if Regex.match?(@color_shade_regex, color) do
+      "border-left-color: var(--color-#{color})"
+    end
+  end
+
+  defp event_border_style(_event), do: nil
 
   defp hour_label(nil, _tz), do: ""
 
