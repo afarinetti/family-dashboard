@@ -53,7 +53,7 @@ defmodule FamilyDashboard.WeatherTest do
     end
   end
 
-  describe "fetch/4" do
+  describe "fetch/4 (current + hourly)" do
     test "returns current conditions" do
       assert {:ok, r} = Weather.fetch(41.88, -87.63, "imperial", plug: stub_plug())
 
@@ -74,20 +74,15 @@ defmodule FamilyDashboard.WeatherTest do
       assert is_number(List.first(hourly)["pop"])
     end
 
-    test "includes the next 7 forecast days and today's high/low" do
+    test "does not include daily data (fetched separately by fetch_daily/4)" do
       assert {:ok, r} = Weather.fetch(41.88, -87.63, "imperial", plug: stub_plug())
 
-      days = r.forecast["days"]
-      assert length(days) == 7
-      # today's high/low mirrors the first daily entry
-      assert r.high == 80.0
-      assert r.low == 60.0
-      # null daily "weather" yields a nil icon, non-null yields the icon
-      assert List.first(days)["icon"] == nil
-      assert Enum.at(days, 1)["icon"] == "10d"
+      assert r.forecast["days"] == []
+      assert is_nil(r.high)
+      assert is_nil(r.low)
     end
 
-    test "current conditions still return when forecast calls fail (best-effort)" do
+    test "current conditions still return when the hourly call fails (best-effort)" do
       plug = fn conn ->
         case conn.request_path do
           "/data/4.0/onecall/current" -> Req.Test.json(conn, @current)
@@ -98,8 +93,6 @@ defmodule FamilyDashboard.WeatherTest do
       assert {:ok, r} = Weather.fetch(41.88, -87.63, "imperial", plug: plug)
       assert r.temp == 71.2
       assert r.forecast["hourly"] == []
-      assert r.forecast["days"] == []
-      assert is_nil(r.high)
     end
 
     test "returns an error when the current call is unauthorized" do
@@ -107,6 +100,25 @@ defmodule FamilyDashboard.WeatherTest do
 
       assert {:error, {:http_status, 401}} =
                Weather.fetch(41.88, -87.63, "imperial", plug: plug)
+    end
+  end
+
+  describe "fetch_daily/4" do
+    test "returns the next 7 days with high/low and icons" do
+      assert {:ok, days} = Weather.fetch_daily(41.88, -87.63, "imperial", plug: stub_plug())
+
+      assert length(days) == 7
+      assert List.first(days)["high"] == 80.0
+      assert List.first(days)["low"] == 60.0
+      # null daily "weather" yields a nil icon, a non-null one yields the icon
+      assert List.first(days)["icon"] == nil
+      assert Enum.at(days, 1)["icon"] == "10d"
+    end
+
+    test "returns {:error, :no_daily} when the endpoint returns empty data" do
+      plug = fn conn -> Req.Test.json(conn, %{"data" => []}) end
+
+      assert {:error, :no_daily} = Weather.fetch_daily(41.88, -87.63, "imperial", plug: plug)
     end
   end
 end

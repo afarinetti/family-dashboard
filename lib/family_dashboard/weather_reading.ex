@@ -16,32 +16,27 @@ defmodule FamilyDashboard.WeatherReading do
       prepare build(sort: [observed_at: :desc], limit: 1)
     end
 
-    defaults [
-      :read,
-      :destroy,
-      create: [
-        :observed_at,
-        :temp,
-        :feels_like,
-        :condition,
-        :icon,
-        :high,
-        :low,
-        :forecast,
-        :location_label
-      ],
-      update: [
-        :observed_at,
-        :temp,
-        :feels_like,
-        :condition,
-        :icon,
-        :high,
-        :low,
-        :forecast,
-        :location_label
-      ]
+    @fields [
+      :observed_at,
+      :temp,
+      :feels_like,
+      :condition,
+      :icon,
+      :high,
+      :low,
+      :forecast,
+      :location_label
     ]
+
+    defaults [:read, :destroy, create: @fields]
+
+    # Non-atomic: the `forecast` map can't be bound as a raw SQL param in an
+    # atomic update (SQLite). Used by the daily job to patch days/high/low.
+    update :update do
+      primary? true
+      require_atomic? false
+      accept @fields
+    end
   end
 
   attributes do

@@ -25,6 +25,7 @@ defmodule FamilyDashboard.Dashboard do
     resource FamilyDashboard.WeatherReading do
       define :latest_weather, action: :latest, not_found_error?: false
       define :record_weather, action: :create
+      define :update_weather_reading, action: :update
     end
 
     resource FamilyDashboard.Setting do

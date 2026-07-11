@@ -46,6 +46,7 @@ defmodule FamilyDashboard.Setting do
       :time_zone,
       :calendar_sync_minutes,
       :weather_refresh_minutes,
+      :daily_refresh_minutes,
       :sync_max_attempts
     ]
 
@@ -62,7 +63,7 @@ defmodule FamilyDashboard.Setting do
     # System-set weather fetch status (not user-editable in the admin forms).
     update :record_weather_status do
       require_atomic? false
-      accept [:weather_last_error, :weather_last_attempted_at]
+      accept [:weather_last_error, :weather_last_attempted_at, :daily_last_attempted_at]
     end
   end
 
@@ -119,6 +120,19 @@ defmodule FamilyDashboard.Setting do
       allow_nil? false
       default 15
       constraints min: 1
+    end
+
+    # The 7-day forecast changes slowly and its endpoint is flaky, so it refreshes
+    # on its own, less-frequent schedule via a separate Oban job.
+    attribute :daily_refresh_minutes, :integer do
+      public? true
+      allow_nil? false
+      default 60
+      constraints min: 1
+    end
+
+    attribute :daily_last_attempted_at, :utc_datetime do
+      public? true
     end
 
     attribute :sync_max_attempts, :integer do

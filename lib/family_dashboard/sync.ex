@@ -67,7 +67,7 @@ defmodule FamilyDashboard.Sync do
       true ->
         case Weather.fetch(setting.latitude, setting.longitude, setting.units || "metric", opts) do
           {:ok, attrs} ->
-            Dashboard.record_weather!(carry_forward_days(attrs))
+            Dashboard.record_weather!(carry_forward_daily(attrs))
             record_weather_status(setting, nil)
             broadcast("weather", :weather_updated)
             :ok
@@ -79,19 +79,73 @@ defmodule FamilyDashboard.Sync do
     end
   end
 
-  # OWM's daily endpoint intermittently returns empty; when this refresh has no
-  # 7-day data, keep the last known forecast so the widget doesn't flicker.
-  defp carry_forward_days(attrs) do
-    if get_in(attrs, [:forecast, "days"]) in [nil, []] do
-      case Dashboard.latest_weather() do
-        {:ok, %{forecast: %{"days" => prev}}} when prev not in [nil, []] ->
-          put_in(attrs, [:forecast, "days"], prev)
+  @doc """
+  Refreshes just the 7-day forecast — its own (less frequent, higher-retry) Oban
+  job because the daily endpoint is slow and flaky. Patches the latest reading's
+  `days` and today's high/low in place. Returns `:ok` or `{:error, reason}`.
+  """
+  @spec refresh_daily(keyword()) :: :ok | {:error, term()}
+  def refresh_daily(opts \\ []) do
+    case Dashboard.current_setting() do
+      {:ok, %{latitude: lat, longitude: lon} = setting}
+      when not is_nil(lat) and not is_nil(lon) ->
+        if is_nil(api_key()) and opts == [] do
+          {:error, :no_api_key}
+        else
+          record_daily_attempt(setting)
 
-        _ ->
-          attrs
-      end
-    else
-      attrs
+          case Weather.fetch_daily(lat, lon, setting.units || "metric", opts) do
+            {:ok, days} -> apply_daily_to_latest(days)
+            {:error, reason} -> {:error, reason}
+          end
+        end
+
+      _ ->
+        {:error, :no_location}
+    end
+  end
+
+  # The daily forecast lives on the newest reading (created by the fast
+  # current+hourly refresh); patch its days + today's high/low in place.
+  defp apply_daily_to_latest(days) do
+    case Dashboard.latest_weather() do
+      {:ok, %{} = reading} ->
+        today = List.first(days) || %{}
+        forecast = Map.put(reading.forecast || %{}, "days", days)
+
+        Dashboard.update_weather_reading!(reading, %{
+          forecast: forecast,
+          high: today["high"],
+          low: today["low"]
+        })
+
+        broadcast("weather", :weather_updated)
+        :ok
+
+      # No reading yet; the next current+hourly refresh creates one and the
+      # following daily cycle fills it in.
+      _ ->
+        {:error, :no_reading}
+    end
+  end
+
+  defp record_daily_attempt(setting) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    Dashboard.record_weather_status!(setting, %{daily_last_attempted_at: now})
+  end
+
+  # The fast current+hourly refresh carries the last known 7-day (days + today's
+  # high/low) forward so the widget stays populated between daily-job runs.
+  defp carry_forward_daily(attrs) do
+    case Dashboard.latest_weather() do
+      {:ok, %{} = prev} ->
+        attrs
+        |> put_in([:forecast, "days"], prev.forecast["days"] || [])
+        |> Map.put(:high, prev.high)
+        |> Map.put(:low, prev.low)
+
+      _ ->
+        attrs
     end
   end
 

@@ -33,10 +33,10 @@ defmodule FamilyDashboard.Weather do
   @daily_attempts 2
 
   @doc """
-  Fetches current conditions plus the hourly and daily forecast for `lat`/`lon`
-  in the given `units`. Extra `opts` are forwarded to `Req.get/2` (e.g. a `:plug`
-  stub in tests). Returns `{:ok, reading_attrs}` or `{:error, reason}` (only the
-  current call can fail the whole fetch).
+  Fetches current conditions + the hourly forecast for `lat`/`lon`. The daily
+  forecast is fetched separately (`fetch_daily/4`) because that endpoint is slow
+  and flaky. Extra `opts` are forwarded to `Req.get/2` (e.g. a `:plug` stub in
+  tests). Returns `{:ok, reading_attrs}` (no daily fields) or `{:error, reason}`.
   """
   @spec fetch(number(), number(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def fetch(lat, lon, units, opts \\ []) do
@@ -44,11 +44,23 @@ defmodule FamilyDashboard.Weather do
 
     with {:ok, current} <- get(@current_path, params, opts) do
       hourly = best_effort(@hourly_path, params, opts, @hourly_timeout)
-      # OWM's daily endpoint is intermittent (hangs or returns empty), so retry a
-      # couple times to catch a good response; the carry-forward in Sync covers
-      # the cycles where it still comes back empty.
-      daily = best_effort_daily(params, opts, @daily_attempts)
-      {:ok, normalize(current, hourly, daily)}
+      {:ok, normalize_current(current, hourly)}
+    end
+  end
+
+  @doc """
+  Fetches just the 7-day forecast. Retries a couple times because OWM's daily
+  endpoint intermittently hangs or returns an empty `data` array. Returns
+  `{:ok, days}` (a non-empty list of day summaries) or `{:error, :no_daily}`.
+  """
+  @spec fetch_daily(number(), number(), String.t(), keyword()) ::
+          {:ok, [map()]} | {:error, :no_daily}
+  def fetch_daily(lat, lon, units, opts \\ []) do
+    params = [lat: lat, lon: lon, units: units, appid: api_key()]
+
+    case best_effort_daily(params, opts, @daily_attempts) do
+      %{"data" => [_ | _]} = body -> {:ok, daily_summary(body)}
+      _ -> {:error, :no_daily}
     end
   end
 
@@ -92,13 +104,10 @@ defmodule FamilyDashboard.Weather do
     end
   end
 
-  defp normalize(current, hourly, daily) do
+  defp normalize_current(current, hourly) do
     obs = (current["data"] || []) |> List.first() || %{}
     weather = (obs["weather"] || []) |> List.first() || %{}
     now = obs["dt"] || 0
-
-    days = daily_summary(daily, now)
-    today = List.first(days) || %{}
 
     %{
       observed_at: unix_to_datetime(obs["dt"]),
@@ -106,14 +115,12 @@ defmodule FamilyDashboard.Weather do
       feels_like: obs["feels_like"],
       condition: weather["description"] || weather["main"],
       icon: weather["icon"],
-      high: today["high"],
-      low: today["low"],
+      # high/low + days come from the separate daily job (see FamilyDashboard.Sync).
+      high: nil,
+      low: nil,
       # 4.0 current returns no place name; the dashboard uses Setting.city_label.
       location_label: nil,
-      forecast: %{
-        "hourly" => hourly_summary(hourly, now),
-        "days" => days
-      }
+      forecast: %{"hourly" => hourly_summary(hourly, now), "days" => []}
     }
   end
 
@@ -132,13 +139,10 @@ defmodule FamilyDashboard.Weather do
     end)
   end
 
-  # Next @days forecast days including today (daily `temp` is a min/max object;
-  # `weather` may be null, so `icon` can be nil).
-  defp daily_summary(daily, now) do
-    today_start = now - 43_200
-
-    (daily["data"] || [])
-    |> Enum.filter(&((&1["dt"] || 0) >= today_start))
+  # The first @days forecast days (the endpoint returns forward-looking data from
+  # now). Daily `temp` is a min/max object; `weather` may be null → `icon` nil.
+  defp daily_summary(body) do
+    (body["data"] || [])
     |> Enum.take(@days)
     |> Enum.map(fn day ->
       temp = day["temp"] || %{}

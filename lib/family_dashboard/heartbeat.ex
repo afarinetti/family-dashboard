@@ -8,11 +8,12 @@ defmodule FamilyDashboard.Heartbeat do
   """
 
   alias FamilyDashboard.Dashboard
-  alias FamilyDashboard.Workers.{CalendarSync, WeatherRefresh}
+  alias FamilyDashboard.Workers.{CalendarSync, WeatherDailyRefresh, WeatherRefresh}
 
   # Fallbacks when the singleton Setting row hasn't been created yet.
   @default_calendar_minutes 15
   @default_weather_minutes 30
+  @default_daily_minutes 60
   @default_max_attempts 3
 
   @spec run() :: :ok
@@ -22,6 +23,7 @@ defmodule FamilyDashboard.Heartbeat do
 
     enqueue_due_calendars(setting, now)
     enqueue_weather_if_due(setting, now)
+    enqueue_daily_if_due(setting, now)
     :ok
   end
 
@@ -51,6 +53,18 @@ defmodule FamilyDashboard.Heartbeat do
       %{}
       |> WeatherRefresh.new(max_attempts: 1)
       |> Oban.insert()
+    end
+  end
+
+  # The 7-day forecast refreshes on its own, less frequent schedule (the worker
+  # itself retries the flaky endpoint).
+  defp enqueue_daily_if_due(nil, _now), do: :ok
+
+  defp enqueue_daily_if_due(setting, now) do
+    interval = minutes(setting, :daily_refresh_minutes, @default_daily_minutes) * 60
+
+    if weather_due?(setting.daily_last_attempted_at, now, interval) do
+      Oban.insert(WeatherDailyRefresh.new(%{}))
     end
   end
 

@@ -168,32 +168,45 @@ defmodule FamilyDashboard.SyncTest do
       assert reading.condition == "clear sky"
     end
 
-    test "carries forward the last 7-day forecast when a refresh returns empty days" do
-      # First refresh populates the daily forecast.
+    test "the current+hourly refresh does not fetch daily data" do
       assert :ok = Sync.refresh_weather(plug: weather_plug())
+      assert Dashboard.latest_weather!().forecast["days"] == []
+    end
+  end
+
+  describe "refresh_daily/1" do
+    test "patches the latest reading's 7-day and today's high/low" do
+      # A reading must exist first (the daily job patches the latest one).
+      assert :ok = Sync.refresh_weather(plug: weather_plug())
+      assert Dashboard.latest_weather!().forecast["days"] == []
+
+      assert :ok = Sync.refresh_daily(plug: weather_plug())
+
+      reading = Dashboard.latest_weather!()
+      assert length(reading.forecast["days"]) == 1
+      assert reading.high == 80.0
+      assert reading.low == 60.0
+      # hourly data is untouched by the daily job
+      assert reading.forecast["hourly"] != []
+    end
+
+    test "a later current+hourly refresh carries the 7-day forward" do
+      assert :ok = Sync.refresh_weather(plug: weather_plug())
+      assert :ok = Sync.refresh_daily(plug: weather_plug())
       assert length(Dashboard.latest_weather!().forecast["days"]) == 1
 
-      # Next refresh: daily comes back empty (OWM intermittently does this).
-      empty_daily = fn conn ->
-        body =
-          case conn.request_path do
-            "/data/4.0/onecall/current" ->
-              %{
-                "data" => [
-                  %{"dt" => 1_783_000_000, "temp" => 72.0, "weather" => [%{"icon" => "01d"}]}
-                ]
-              }
+      # New current+hourly reading keeps the last known days + high/low.
+      assert :ok = Sync.refresh_weather(plug: weather_plug())
+      reading = Dashboard.latest_weather!()
+      assert length(reading.forecast["days"]) == 1
+      assert reading.high == 80.0
+    end
 
-            _ ->
-              %{"data" => []}
-          end
+    test "returns an error when the daily endpoint has no data" do
+      assert :ok = Sync.refresh_weather(plug: weather_plug())
+      empty = fn conn -> Req.Test.json(conn, %{"data" => []}) end
 
-        Req.Test.json(conn, body)
-      end
-
-      assert :ok = Sync.refresh_weather(plug: empty_daily)
-      # The new reading kept the previously-known 7-day forecast.
-      assert length(Dashboard.latest_weather!().forecast["days"]) == 1
+      assert {:error, :no_daily} = Sync.refresh_daily(plug: empty)
     end
 
     test "records a human-readable weather_last_error on a fetch failure" do
