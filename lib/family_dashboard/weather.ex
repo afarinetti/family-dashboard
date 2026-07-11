@@ -23,8 +23,14 @@ defmodule FamilyDashboard.Weather do
 
   @hours 8
   @days 7
-  # Forecast calls get a bounded timeout so a slow timeline can't stall the worker.
-  @forecast_timeout 8_000
+  # Timeouts bound how long a slow timeline can stall the worker. The daily
+  # endpoint is genuinely slow (OWM often takes ~15-21s to return populated data),
+  # so it gets a much longer budget than the fast hourly call.
+  @hourly_timeout 8_000
+  # The daily endpoint is intermittent (fast when it works, hangs otherwise);
+  # cap each attempt and try twice, so the worst case is bounded (~2 x 15s).
+  @daily_timeout 15_000
+  @daily_attempts 2
 
   @doc """
   Fetches current conditions plus the hourly and daily forecast for `lat`/`lon`
@@ -37,25 +43,48 @@ defmodule FamilyDashboard.Weather do
     params = [lat: lat, lon: lon, units: units, appid: api_key()]
 
     with {:ok, current} <- get(@current_path, params, opts) do
-      hourly = best_effort(@hourly_path, params, opts)
-      daily = best_effort(@daily_path, params, opts)
+      hourly = best_effort(@hourly_path, params, opts, @hourly_timeout)
+      # OWM's daily endpoint is intermittent (hangs or returns empty), so retry a
+      # couple times to catch a good response; the carry-forward in Sync covers
+      # the cycles where it still comes back empty.
+      daily = best_effort_daily(params, opts, @daily_attempts)
       {:ok, normalize(current, hourly, daily)}
     end
   end
 
-  defp get(path, params, opts) do
-    # No per-request retry — Oban owns retries at the job level.
-    req_opts = Keyword.merge([base_url: @base_url, url: path, params: params, retry: false], opts)
+  defp best_effort_daily(_params, _opts, 0), do: %{}
 
-    case Req.get(req_opts) do
+  defp best_effort_daily(params, opts, attempts) do
+    body = best_effort(@daily_path, params, opts, @daily_timeout)
+
+    if (body["data"] || []) == [] do
+      best_effort_daily(params, opts, attempts - 1)
+    else
+      body
+    end
+  end
+
+  defp get(path, params, opts) do
+    # `compressed: false` is REQUIRED: OWM's One Call timeline endpoints hang/return
+    # empty when gzip is requested (curl works because it doesn't ask for gzip).
+    # No per-request retry — Oban owns retries at the job level.
+    base = [
+      base_url: @base_url,
+      url: path,
+      params: params,
+      retry: false,
+      compressed: false
+    ]
+
+    case Req.get(Keyword.merge(base, opts)) do
       {:ok, %Req.Response{status: 200, body: body}} -> {:ok, body}
       {:ok, %Req.Response{status: status}} -> {:error, {:http_status, status}}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp best_effort(path, params, opts) do
-    opts = Keyword.put_new(opts, :receive_timeout, @forecast_timeout)
+  defp best_effort(path, params, opts, timeout) do
+    opts = Keyword.put_new(opts, :receive_timeout, timeout)
 
     case get(path, params, opts) do
       {:ok, body} -> body

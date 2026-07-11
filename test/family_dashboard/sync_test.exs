@@ -168,6 +168,34 @@ defmodule FamilyDashboard.SyncTest do
       assert reading.condition == "clear sky"
     end
 
+    test "carries forward the last 7-day forecast when a refresh returns empty days" do
+      # First refresh populates the daily forecast.
+      assert :ok = Sync.refresh_weather(plug: weather_plug())
+      assert length(Dashboard.latest_weather!().forecast["days"]) == 1
+
+      # Next refresh: daily comes back empty (OWM intermittently does this).
+      empty_daily = fn conn ->
+        body =
+          case conn.request_path do
+            "/data/4.0/onecall/current" ->
+              %{
+                "data" => [
+                  %{"dt" => 1_783_000_000, "temp" => 72.0, "weather" => [%{"icon" => "01d"}]}
+                ]
+              }
+
+            _ ->
+              %{"data" => []}
+          end
+
+        Req.Test.json(conn, body)
+      end
+
+      assert :ok = Sync.refresh_weather(plug: empty_daily)
+      # The new reading kept the previously-known 7-day forecast.
+      assert length(Dashboard.latest_weather!().forecast["days"]) == 1
+    end
+
     test "records a human-readable weather_last_error on a fetch failure" do
       plug = fn conn -> Plug.Conn.send_resp(conn, 401, ~s({"message":"Invalid API key"})) end
 

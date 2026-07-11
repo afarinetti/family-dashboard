@@ -67,7 +67,7 @@ defmodule FamilyDashboard.Sync do
       true ->
         case Weather.fetch(setting.latitude, setting.longitude, setting.units || "metric", opts) do
           {:ok, attrs} ->
-            Dashboard.record_weather!(attrs)
+            Dashboard.record_weather!(carry_forward_days(attrs))
             record_weather_status(setting, nil)
             broadcast("weather", :weather_updated)
             :ok
@@ -76,6 +76,22 @@ defmodule FamilyDashboard.Sync do
             record_weather_status(setting, humanize_weather_error(reason))
             {:error, reason}
         end
+    end
+  end
+
+  # OWM's daily endpoint intermittently returns empty; when this refresh has no
+  # 7-day data, keep the last known forecast so the widget doesn't flicker.
+  defp carry_forward_days(attrs) do
+    if get_in(attrs, [:forecast, "days"]) in [nil, []] do
+      case Dashboard.latest_weather() do
+        {:ok, %{forecast: %{"days" => prev}}} when prev not in [nil, []] ->
+          put_in(attrs, [:forecast, "days"], prev)
+
+        _ ->
+          attrs
+      end
+    else
+      attrs
     end
   end
 
