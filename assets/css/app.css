@@ -102,4 +102,18 @@
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
+/* The dashboard clock's blinking colon. Registered as a --animate-* theme token so
+   Tailwind v4 generates an `animate-blink` utility; combine with `motion-reduce:
+   animate-none` at the call site rather than a manual media query here. Holds at
+   opacity .55 (not 1) so the "on" tick matches the dimmed AM/PM label instead of
+   full digit-strength contrast. */
+@theme {
+  --animate-blink: blink 1s steps(1, end) infinite;
+}
+
+@keyframes blink {
+  0%, 49% { opacity: 0.55; }
+  50%, 100% { opacity: 0; }
+}
+
 /* This file is for your main application CSS */

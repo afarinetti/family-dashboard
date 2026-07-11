@@ -151,6 +151,7 @@ defmodule FamilyDashboard.Weather do
         "dt" => day["dt"],
         "high" => temp["max"],
         "low" => temp["min"],
+        "pop" => day["pop"],
         "icon" => (day["weather"] || []) |> List.first() |> icon()
       }
     end)

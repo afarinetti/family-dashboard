@@ -365,42 +365,74 @@ defmodule FamilyDashboardWeb.DashboardLive do
 
   @impl true
   def render(assigns) do
+    {hourly_min, hourly_max} = temp_bounds(hourly_temps(assigns.weather))
+    {daily_min, daily_max} = daily_temp_bounds(daily_days(assigns.weather))
+
+    assigns =
+      assign(assigns,
+        hourly_min: hourly_min,
+        hourly_max: hourly_max,
+        daily_min: daily_min,
+        daily_max: daily_max
+      )
+
     ~H"""
     <Layouts.app flash={@flash}>
-      <!-- Portrait wall display (1080w x 1920h): 30% left rail, 70% right column. -->
-      <div class="h-screen w-screen overflow-hidden bg-base-200 p-6 flex flex-row gap-5">
+      <!-- Portrait wall display (1080w x 1920h): 40% left rail, 60% right column. -->
+      <div class="h-screen w-screen overflow-hidden bg-base-200 p-3 flex flex-row gap-2.5">
         <!-- Left rail (30%): clock/date, weather, news/alerts placeholders -->
-        <div class="w-[30%] shrink-0 flex flex-col gap-3 overflow-hidden">
+        <div class="w-[40%] shrink-0 flex flex-col gap-3 overflow-hidden">
           <!-- Clock / greeting -->
           <section class="card card-sm bg-base-100 shadow-sm shrink-0">
             <div class="card-body">
               <p class="text-lg font-medium text-base-content/70">{@setting.greeting}</p>
-              <p class="text-5xl leading-none font-bold tabular-nums tracking-tight">
-                {Calendar.strftime(@now, "%-I:%M")}
-                <span class="text-2xl font-semibold text-base-content/60">
+              <p class="flex items-baseline gap-2.5 leading-none font-bold tabular-nums tracking-tight whitespace-nowrap">
+                <span class="text-[5.4rem] whitespace-nowrap">
+                  <!-- Hour/colon/minute packed with no source whitespace between tags,
+                       so HEEx doesn't insert a stray space between the digits. -->
+                  <span class="inline-block min-w-[2ch] text-right">{Calendar.strftime(
+                    @now,
+                    "%-I"
+                  )}</span><span class="inline-block -translate-y-[0.08em] animate-blink motion-reduce:animate-none">:</span><span class="inline-block">{Calendar.strftime(
+                    @now,
+                    "%M"
+                  )}</span>
+                </span>
+                <span class="text-[1.7rem] font-semibold text-base-content/55">
                   {Calendar.strftime(@now, "%p")}
                 </span>
               </p>
-              <p class="text-xl text-base-content/70">{Calendar.strftime(@now, "%A, %B %-d")}</p>
+              <p class="text-xl text-base-content/70 text-center">
+                {Calendar.strftime(@now, "%A, %B %-d")}
+              </p>
             </div>
           </section>
 
           <!-- Current weather -->
           <section class="card card-sm bg-base-100 shadow-sm shrink-0">
             <div class="card-body">
-              <h2 class="text-sm text-base-content/60">
-                Weather<span :if={@setting.city_label} class="font-normal">· {@setting.city_label}</span>
-              </h2>
-              <div :if={@weather} class="flex items-center gap-3">
-                <span class="text-5xl">{weather_emoji(@weather.icon)}</span>
-                <p class="text-4xl font-bold tabular-nums">{round_temp(@weather.temp)}°</p>
-                <div>
-                  <p class="text-base text-base-content/70 capitalize">{@weather.condition}</p>
-                  <p :if={@weather.high && @weather.low} class="text-sm text-base-content/60">
-                    H {round_temp(@weather.high)}° · L {round_temp(@weather.low)}°
-                  </p>
-                  <p class="text-sm text-base-content/60">feels {round_temp(@weather.feels_like)}°</p>
+              <.card_title label="Weather">
+                <:subtitle :if={@setting.city_label}>{@setting.city_label}</:subtitle>
+              </.card_title>
+              <div :if={@weather} class="flex flex-col gap-1">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-3">
+                    <span class="text-7xl">{weather_emoji(@weather.icon)}</span>
+                    <p class="text-7xl font-bold tabular-nums">{round_temp(@weather.temp)}°</p>
+                  </div>
+                  <div class="text-right shrink-0">
+                    <p :if={@weather.high && @weather.low} class="text-base text-base-content/60">
+                      H {round_temp(@weather.high)}°
+                    </p>
+                    <p :if={@weather.high && @weather.low} class="text-base text-base-content/60">
+                      L {round_temp(@weather.low)}°
+                    </p>
+                    <p class="text-base text-base-content/60">
+                      feels {round_temp(@weather.feels_like)}°
+                    </p>
+                  </div>
                 </div>
+                <p class="text-base text-base-content/70 capitalize">{@weather.condition}</p>
               </div>
               <div :if={is_nil(@weather)}>
                 <p :if={@setting.weather_last_error} class="text-base text-warning">
@@ -413,51 +445,72 @@ defmodule FamilyDashboardWeb.DashboardLive do
             </div>
           </section>
 
-          <!-- Hourly (next 8 hours) -->
+          <!-- 8-hour forecast -->
           <section :if={@weather} class="card card-sm bg-base-100 shadow-sm shrink-0">
             <div class="card-body">
-              <h2 class="text-sm text-base-content/60 mb-1">Next hours</h2>
+              <.card_title label="8 hour" />
               <p :if={@weather.forecast["hourly"] in [nil, []]} class="text-xs text-base-content/40">
                 Hourly forecast unavailable.
               </p>
-              <div class="flex justify-between gap-0.5">
+              <div class="flex flex-col gap-2.5">
                 <div
                   :for={hour <- @weather.forecast["hourly"] || []}
-                  class="flex flex-col items-center gap-0.5 flex-1"
+                  class="grid grid-cols-[3.75rem_2.125rem_2.75rem_1fr_2.625rem] items-center gap-2 min-h-[2rem]"
                 >
-                  <span class="text-[0.7rem] text-base-content/60">{hour_label(hour["dt"], @tz)}</span>
-                  <span class="text-2xl">{weather_emoji(hour["icon"])}</span>
-                  <span class="text-sm font-semibold tabular-nums">{round_temp(hour["temp"])}°</span>
-                  <span :if={pop_pct(hour["pop"])} class="text-[0.7rem] text-info">{pop_pct(
-                    hour["pop"]
-                  )}%</span>
+                  <span class="text-lg font-semibold tabular-nums whitespace-nowrap">
+                    <span class="inline-block min-w-[2ch] text-right">{hour_number(hour["dt"], @tz)}</span>
+                    <span>{hour_meridiem(
+                      hour["dt"],
+                      @tz
+                    )}</span>
+                  </span>
+                  <span class="text-2xl text-center">{weather_emoji(hour["icon"])}</span>
+                  <span class="text-lg font-bold text-right tabular-nums">{round_temp(hour["temp"])}°</span>
+                  <span class="relative h-[7px] rounded-full bg-base-300">
+                    <span
+                      class="absolute inset-y-0 left-0 rounded-full"
+                      style={hourly_bar_style(hour, @hourly_min, @hourly_max)}
+                    ></span>
+                  </span>
+                  <span :if={pop_pct(hour["pop"])} class="text-base text-info text-right tabular-nums">
+                    {pop_pct(hour["pop"])}%
+                  </span>
                 </div>
               </div>
             </div>
           </section>
 
-          <!-- 7-day -->
+          <!-- 7-day forecast -->
           <section :if={@weather} class="card card-sm bg-base-100 shadow-sm shrink-0">
             <div class="card-body">
-              <h2 class="text-sm text-base-content/60 mb-1">7-day</h2>
+              <.card_title label="7-day" />
               <p :if={@weather.forecast["days"] in [nil, []]} class="text-xs text-base-content/40">
                 Daily forecast unavailable right now.
               </p>
-              <div class="flex justify-between gap-0.5">
+              <div class="flex flex-col gap-2.5">
                 <div
                   :for={day <- @weather.forecast["days"] || []}
-                  class="flex flex-col items-center gap-0.5 flex-1"
+                  class="grid grid-cols-[3.5rem_2.125rem_2.375rem_1fr_2.375rem_2.625rem] items-center gap-2 min-h-[2rem]"
                 >
-                  <span class="text-[0.7rem] text-base-content/60">{day_short_label(
-                    day["dt"],
-                    @tz,
-                    @today
-                  )}</span>
-                  <span class="text-2xl">{weather_emoji(day["icon"])}</span>
-                  <span class="text-sm font-semibold tabular-nums">{round_temp(day["high"])}°</span>
-                  <span class="text-[0.65rem] text-base-content/50 tabular-nums">{round_temp(
+                  <span class="text-lg font-semibold">{day_short_label(day["dt"], @tz, @today)}</span>
+                  <span class="text-2xl text-center">{weather_emoji(day["icon"])}</span>
+                  <span class="text-lg text-base-content/70 text-right tabular-nums">{round_temp(
                     day["low"]
                   )}°</span>
+                  <span class="relative h-[7px] rounded-full bg-base-300">
+                    <span
+                      class="absolute inset-y-0 rounded-full"
+                      style={daily_range_style(day, @daily_min, @daily_max)}
+                    ></span>
+                    <span
+                      class="absolute top-1/2 h-[13px] w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-sm bg-base-100 shadow-[0_0_0_1.5px_oklch(0%_0_0_/_0.25)]"
+                      style={daily_avg_marker_style(day, @daily_min, @daily_max)}
+                    ></span>
+                  </span>
+                  <span class="text-lg font-bold text-right tabular-nums">{round_temp(day["high"])}°</span>
+                  <span :if={pop_pct(day["pop"])} class="text-base text-info text-right tabular-nums">
+                    {pop_pct(day["pop"])}%
+                  </span>
                 </div>
               </div>
             </div>
@@ -466,7 +519,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
           <!-- News (placeholder, not yet wired to data) -->
           <section class="card card-sm bg-base-100 shadow-sm shrink-0">
             <div class="card-body">
-              <h2 class="text-sm text-base-content/60">News</h2>
+              <.card_title label="News" />
               <p class="text-xs text-base-content/40">Coming soon.</p>
             </div>
           </section>
@@ -474,7 +527,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
           <!-- Weather Alerts (placeholder, not yet wired to data) -->
           <section class="card card-sm bg-base-100 shadow-sm shrink-0">
             <div class="card-body">
-              <h2 class="text-sm text-base-content/60">Weather Alerts</h2>
+              <.card_title label="Weather Alerts" />
               <p class="text-xs text-base-content/40">Coming soon.</p>
             </div>
           </section>
@@ -519,6 +572,23 @@ defmodule FamilyDashboardWeb.DashboardLive do
     """
   end
 
+  # A card title styled as an accent-colored eyebrow with a hairline rule beneath —
+  # reuses the same border-base-300 treatment the agenda's day headers already have,
+  # so the whole rail reads as one heading system instead of plain gray labels.
+  attr :label, :string, required: true
+  slot :subtitle
+
+  defp card_title(assigns) do
+    ~H"""
+    <h2 class="flex items-baseline justify-between gap-2 mb-2.5 pb-[7px] border-b border-base-300">
+      <span class="text-[0.7rem] font-bold uppercase tracking-wider text-primary">{@label}</span>
+      <span :if={@subtitle != []} class="text-sm font-normal text-base-content/50">
+        {render_slot(@subtitle)}
+      </span>
+    </h2>
+    """
+  end
+
   # --- presentation helpers ---
 
   defp round_temp(nil), do: "–"
@@ -553,10 +623,96 @@ defmodule FamilyDashboardWeb.DashboardLive do
 
   defp event_border_style(_event), do: nil
 
-  defp hour_label(nil, _tz), do: ""
+  # --- 8-hour / 7-day bar helpers ---
+  #
+  # Both cards position each row's bar on one scale shared across all rows (rather
+  # than normalizing each row independently), so the bars read as a real trend when
+  # scanned top to bottom, not just decoration.
 
-  defp hour_label(dt, tz) do
-    dt |> DateTime.from_unix!() |> DateTime.shift_zone!(tz) |> Calendar.strftime("%-I %p")
+  defp hourly_temps(nil), do: []
+  defp hourly_temps(weather), do: (weather.forecast["hourly"] || []) |> Enum.map(& &1["temp"])
+
+  defp daily_days(nil), do: []
+  defp daily_days(weather), do: weather.forecast["days"] || []
+
+  defp temp_bounds(temps) do
+    case Enum.reject(temps, &is_nil/1) do
+      [] -> {0, 1}
+      values -> {Enum.min(values), Enum.max(values)}
+    end
+  end
+
+  # Padded a few degrees past the week's actual low/high so bars don't touch the
+  # track edges.
+  defp daily_temp_bounds(days) do
+    lows = days |> Enum.map(& &1["low"]) |> Enum.reject(&is_nil/1)
+    highs = days |> Enum.map(& &1["high"]) |> Enum.reject(&is_nil/1)
+
+    case {lows, highs} do
+      {[], _} -> {0, 1}
+      {_, []} -> {0, 1}
+      _ -> {Enum.min(lows) - 4, Enum.max(highs) + 4}
+    end
+  end
+
+  # A value's position between min/max as a percent, clamped to [0, 100]. nil (a
+  # missing temp) and a degenerate min == max range both fall back to a safe,
+  # non-crashing default rather than propagating into a bad calculation.
+  defp pct_between(nil, _min, _max), do: 0.0
+
+  defp pct_between(value, min, max) when max > min do
+    ((value - min) / (max - min)) |> max(0.0) |> min(1.0) |> Kernel.*(100) |> Float.round(2)
+  end
+
+  defp pct_between(_value, _min, _max), do: 50.0
+
+  # A cool-to-warm hue ramp for a value's position in [min, max]. This is a pure
+  # numeric mapping to a literal oklch() value, not a Tailwind class lookup, so
+  # unlike @color_shade_hex there's no palette/allowlist concern here.
+  defp temp_color(nil, _min, _max), do: "oklch(66% 0.16 122.5)"
+
+  defp temp_color(temp, min, max) do
+    hue = 245 - pct_between(temp, min, max) / 100 * 245
+    "oklch(66% 0.16 #{Float.round(hue, 1)})"
+  end
+
+  defp hourly_bar_style(hour, min, max) do
+    temp = hour["temp"]
+    "width: #{pct_between(temp, min, max)}%; background: #{temp_color(temp, min, max)};"
+  end
+
+  defp daily_range_style(day, min, max) do
+    left = pct_between(day["low"], min, max)
+    right = pct_between(day["high"], min, max)
+    low_color = temp_color(day["low"], min, max)
+    high_color = temp_color(day["high"], min, max)
+
+    "left: #{left}%; width: #{right - left}%; " <>
+      "background: linear-gradient(to right, #{low_color}, #{high_color});"
+  end
+
+  defp daily_avg_marker_style(day, min, max) do
+    "left: #{pct_between(day_average(day), min, max)}%;"
+  end
+
+  defp day_average(%{"low" => low, "high" => high}) when is_number(low) and is_number(high),
+    do: (low + high) / 2
+
+  defp day_average(_day), do: nil
+
+  # Split so the template can reserve a fixed-width slot for the hour (mirrors the
+  # clock's hour padding) — otherwise "11 PM"'s extra digit shifts its AM/PM out of
+  # line with single-digit hours like "1 AM".
+  defp hour_number(nil, _tz), do: ""
+
+  defp hour_number(dt, tz) do
+    dt |> DateTime.from_unix!() |> DateTime.shift_zone!(tz) |> Calendar.strftime("%-I")
+  end
+
+  defp hour_meridiem(nil, _tz), do: ""
+
+  defp hour_meridiem(dt, tz) do
+    dt |> DateTime.from_unix!() |> DateTime.shift_zone!(tz) |> Calendar.strftime("%p")
   end
 
   defp day_short_label(nil, _tz, _today), do: ""
@@ -575,8 +731,10 @@ defmodule FamilyDashboardWeb.DashboardLive do
   defp pop_pct(_), do: nil
 
   # Map an OpenWeatherMap icon code to a simple emoji (offline-friendly, no image
-  # fetch). Blank for a missing icon (daily entries can omit it).
-  defp weather_emoji(nil), do: ""
+  # fetch). A placeholder for a missing icon (daily entries can omit it) — distinct
+  # from the unrecognized-code fallback below, since "no data" and "data we don't
+  # know how to draw" are different failure modes worth telling apart at a glance.
+  defp weather_emoji(nil), do: "❓"
 
   defp weather_emoji(icon) do
     case String.slice(icon, 0, 2) do

@@ -38,6 +38,7 @@ defmodule FamilyDashboard.WeatherTest do
         %{
           "dt" => @now + i * 86_400,
           "temp" => %{"min" => 60.0 + i, "max" => 80.0 + i, "day" => 72.0},
+          "pop" => 0.1 * i,
           "weather" => if(rem(i, 2) == 0, do: nil, else: [%{"icon" => "10d"}])
         }
       end
@@ -110,6 +111,7 @@ defmodule FamilyDashboard.WeatherTest do
       assert length(days) == 7
       assert List.first(days)["high"] == 80.0
       assert List.first(days)["low"] == 60.0
+      assert is_number(List.first(days)["pop"])
       # null daily "weather" yields a nil icon, a non-null one yields the icon
       assert List.first(days)["icon"] == nil
       assert Enum.at(days, 1)["icon"] == "10d"
