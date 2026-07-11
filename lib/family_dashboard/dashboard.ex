@@ -28,6 +28,15 @@ defmodule FamilyDashboard.Dashboard do
       define :update_weather_reading, action: :update
     end
 
+    resource FamilyDashboard.WeatherHourly do
+      define :create_weather_hourly, action: :create
+    end
+
+    resource FamilyDashboard.WeatherDaily do
+      define :create_weather_daily, action: :create
+      define :list_weather_daily, action: :read
+    end
+
     resource FamilyDashboard.Setting do
       define :current_setting, action: :current, not_found_error?: false
       define :create_setting, action: :create
