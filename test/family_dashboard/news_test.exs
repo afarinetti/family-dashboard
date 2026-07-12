@@ -239,7 +239,7 @@ defmodule FamilyDashboard.News.RefreshAllTest do
   end
 
   test "one feed failing does not block another, and keeps the failed feed's existing items" do
-    good = Dashboard.create_news_feed!(%{url: "https://feed.example/good.xml", label: "Good"})
+    _good = Dashboard.create_news_feed!(%{url: "https://feed.example/good.xml", label: "Good"})
     bad = Dashboard.create_news_feed!(%{url: "https://feed.example/bad.xml", label: "Bad"})
 
     Dashboard.create_news_item!(%{
