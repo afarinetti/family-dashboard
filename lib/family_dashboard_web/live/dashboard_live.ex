@@ -363,7 +363,12 @@ defmodule FamilyDashboardWeb.DashboardLive do
   end
 
   defp hidden_categories(nil), do: []
-  defp hidden_categories(categories), do: String.split(categories, ",", trim: true)
+
+  defp hidden_categories(categories) do
+    categories
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+  end
 
   defp in_alert_window?(%{begins_at: begins_at, expires_at: expires_at}, now) do
     (is_nil(begins_at) or DateTime.compare(now, begins_at) != :lt) and

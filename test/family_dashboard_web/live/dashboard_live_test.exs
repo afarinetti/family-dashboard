@@ -272,6 +272,35 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     refute html =~ "Small Craft Advisory"
   end
 
+  test "hides hidden-category alerts with whitespace-trimmed entries", %{conn: conn} do
+    {:ok, setting} = Dashboard.current_setting()
+
+    Dashboard.update_setting!(setting, %{
+      alerts_hidden_categories: "small craft advisory, tornado warning"
+    })
+
+    reading =
+      Dashboard.record_weather!(%{
+        observed_at: DateTime.utc_now() |> DateTime.truncate(:second),
+        temp: 70.0
+      })
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Dashboard.create_weather_alert!(%{
+      weather_reading_id: reading.id,
+      severity: "severe",
+      category: "tornado warning",
+      name: "Tornado Warning",
+      begins_at: DateTime.add(now, -600, :second),
+      expires_at: DateTime.add(now, 3600, :second)
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    refute html =~ "Tornado Warning"
+  end
+
   test "shows all-day events with an 'All day' label in a negative-offset zone", %{conn: conn} do
     {:ok, setting} = Dashboard.current_setting()
     Dashboard.update_setting!(setting, %{time_zone: "America/Chicago"})
