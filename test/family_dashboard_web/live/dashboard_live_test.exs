@@ -215,7 +215,12 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
 
     {:ok, _live, html} = live(conn, ~p"/")
 
-    assert html =~ ~r/Newer headline.*Older headline/s
+    # The ticker track is rendered twice back-to-back (for the seamless CSS
+    # marquee loop via translateX(-50%)), so both titles always appear twice
+    # regardless of order — compare first-occurrence indices, not a regex.
+    {newer_index, _} = :binary.match(html, "Newer headline")
+    {older_index, _} = :binary.match(html, "Older headline")
+    assert newer_index < older_index
   end
 
   test "shows the alerts card for an active alert that meets the default severity threshold", %{
