@@ -19,7 +19,7 @@ defmodule FamilyDashboard.WeatherReading do
       prepare build(
                 sort: [observed_at: :desc, inserted_at: :desc],
                 limit: 1,
-                load: [:hourly, :daily]
+                load: [:hourly, :daily, :alerts]
               )
     end
 
@@ -148,6 +148,11 @@ defmodule FamilyDashboard.WeatherReading do
     has_many :daily, FamilyDashboard.WeatherDaily do
       destination_attribute :weather_reading_id
       sort forecast_date: :asc
+    end
+
+    has_many :alerts, FamilyDashboard.WeatherAlert do
+      destination_attribute :weather_reading_id
+      sort priority: :asc
     end
   end
 end

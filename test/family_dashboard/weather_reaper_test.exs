@@ -24,26 +24,37 @@ defmodule FamilyDashboard.WeatherReaperTest do
     })
   end
 
+  defp add_alert(reading) do
+    Dashboard.create_weather_alert!(%{
+      weather_reading_id: reading.id,
+      severity: "moderate",
+      name: "Test alert"
+    })
+  end
+
   defp reading_ids do
     FamilyDashboard.WeatherReading |> Ash.read!() |> Enum.map(& &1.id)
   end
 
-  test "deletes readings older than 48 hours, along with their hourly/daily children" do
+  test "deletes readings older than 48 hours, along with their hourly/daily/alert children" do
     old =
       create_reading(DateTime.utc_now() |> DateTime.add(-72, :hour) |> DateTime.truncate(:second))
 
     add_hourly(old)
     add_daily(old)
+    add_alert(old)
 
     recent = create_reading(DateTime.utc_now() |> DateTime.truncate(:second))
     recent_hourly = add_hourly(recent)
     recent_daily = add_daily(recent)
+    recent_alert = add_alert(recent)
 
     assert :ok = WeatherReaper.reap()
 
     assert reading_ids() == [recent.id]
     assert FamilyDashboard.WeatherHourly |> Ash.read!() |> Enum.map(& &1.id) == [recent_hourly.id]
     assert FamilyDashboard.WeatherDaily |> Ash.read!() |> Enum.map(& &1.id) == [recent_daily.id]
+    assert FamilyDashboard.WeatherAlert |> Ash.read!() |> Enum.map(& &1.id) == [recent_alert.id]
   end
 
   test "keeps readings within the retention window" do

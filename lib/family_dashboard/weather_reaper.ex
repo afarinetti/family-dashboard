@@ -1,9 +1,9 @@
 defmodule FamilyDashboard.WeatherReaper do
   @moduledoc """
-  Deletes old `WeatherReading` rows (and their `WeatherHourly`/`WeatherDaily`
-  children) on a daily cron schedule (see `config/config.exs`). Only the
-  latest reading is ever read anywhere in the app — everything older is pure
-  accumulated history with no read path.
+  Deletes old `WeatherReading` rows (and their `WeatherHourly`/`WeatherDaily`/
+  `WeatherAlert` children) on a daily cron schedule (see `config/config.exs`).
+  Only the latest reading is ever read anywhere in the app — everything older
+  is pure accumulated history with no read path.
 
   The current latest reading is always protected, even if it's older than the
   retention window: if refreshes break for an extended period, the dashboard
@@ -13,7 +13,7 @@ defmodule FamilyDashboard.WeatherReaper do
 
   require Ash.Query
 
-  alias FamilyDashboard.{Dashboard, WeatherDaily, WeatherHourly, WeatherReading}
+  alias FamilyDashboard.{Dashboard, WeatherAlert, WeatherDaily, WeatherHourly, WeatherReading}
 
   @retention_hours 48
 
@@ -42,6 +42,13 @@ defmodule FamilyDashboard.WeatherReaper do
 
           Ash.bulk_destroy!(
             Ash.Query.filter(WeatherDaily, weather_reading_id in ^ids),
+            :destroy,
+            %{},
+            strategy: [:stream]
+          )
+
+          Ash.bulk_destroy!(
+            Ash.Query.filter(WeatherAlert, weather_reading_id in ^ids),
             :destroy,
             %{},
             strategy: [:stream]
