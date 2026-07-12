@@ -6,19 +6,21 @@ defmodule FamilyDashboard.Heartbeat do
   actually *due* per the configured intervals — so the effective sync cadence
   and retry count are editable in the settings panel without a redeploy.
 
-  `enqueue_weather/1`, `enqueue_daily/1`, and `enqueue_calendar/3` are also used
-  directly by the ops hub's manual "sync now" buttons (`force?: true`), which
-  bypass each worker's Oban uniqueness window so a click always enqueues even
-  if a job is already pending — see `FamilyDashboardWeb.OpsLive`.
+  `enqueue_weather/1`, `enqueue_daily/1`, `enqueue_news/1`, and
+  `enqueue_calendar/3` are also used directly by the ops hub's manual "sync
+  now" buttons (`force?: true`), which bypass each worker's Oban uniqueness
+  window so a click always enqueues even if a job is already pending — see
+  `FamilyDashboardWeb.OpsLive`.
   """
 
   alias FamilyDashboard.Dashboard
-  alias FamilyDashboard.Workers.{CalendarSync, WeatherDailyRefresh, WeatherRefresh}
+  alias FamilyDashboard.Workers.{CalendarSync, NewsRefresh, WeatherDailyRefresh, WeatherRefresh}
 
   # Fallbacks when the singleton Setting row hasn't been created yet.
   @default_calendar_minutes 15
   @default_weather_minutes 30
   @default_daily_minutes 60
+  @default_news_minutes 15
   @default_max_attempts 3
 
   @spec run() :: :ok
@@ -29,6 +31,7 @@ defmodule FamilyDashboard.Heartbeat do
     enqueue_due_calendars(setting, now)
     enqueue_weather_if_due(setting, now)
     enqueue_daily_if_due(setting, now)
+    enqueue_news_if_due(setting, now)
     :ok
   end
 
@@ -46,6 +49,13 @@ defmodule FamilyDashboard.Heartbeat do
   @spec enqueue_daily(boolean()) :: :ok
   def enqueue_daily(force? \\ false) do
     %{} |> WeatherDailyRefresh.new(force_opts(force?)) |> Oban.insert()
+    :ok
+  end
+
+  @doc "Enqueues a news refresh. `force?: true` bypasses the worker's unique window."
+  @spec enqueue_news(boolean()) :: :ok
+  def enqueue_news(force? \\ false) do
+    %{} |> NewsRefresh.new(force_opts(force?)) |> Oban.insert()
     :ok
   end
 
@@ -79,7 +89,7 @@ defmodule FamilyDashboard.Heartbeat do
   defp enqueue_weather_if_due(setting, now) do
     interval = minutes(setting, :weather_refresh_minutes, @default_weather_minutes) * 60
 
-    if weather_due?(setting.weather_last_attempted_at, now, interval) do
+    if attempt_due?(setting.weather_last_attempted_at, now, interval) do
       enqueue_weather()
     end
   end
@@ -91,8 +101,20 @@ defmodule FamilyDashboard.Heartbeat do
   defp enqueue_daily_if_due(setting, now) do
     interval = minutes(setting, :daily_refresh_minutes, @default_daily_minutes) * 60
 
-    if weather_due?(setting.daily_last_attempted_at, now, interval) do
+    if attempt_due?(setting.daily_last_attempted_at, now, interval) do
       enqueue_daily()
+    end
+  end
+
+  # One worker refreshes every enabled feed together, so there's a single
+  # global cadence (news_last_attempted_at) rather than a per-feed one.
+  defp enqueue_news_if_due(nil, _now), do: :ok
+
+  defp enqueue_news_if_due(setting, now) do
+    interval = minutes(setting, :news_refresh_minutes, @default_news_minutes) * 60
+
+    if attempt_due?(setting.news_last_attempted_at, now, interval) do
+      enqueue_news()
     end
   end
 
@@ -104,12 +126,12 @@ defmodule FamilyDashboard.Heartbeat do
     DateTime.diff(now, last_attempted_at) >= interval
   end
 
-  # Gate on the last *attempt* (success or failure), not the last successful
-  # reading — otherwise a persistently-failing fetch is "due" every minute and
-  # hammers the API.
-  defp weather_due?(nil, _now, _interval), do: true
+  # Gate on the last *attempt*, not the last success — otherwise a
+  # persistently-failing fetch is "due" every minute and hammers the source.
+  # Shared by weather, the daily forecast, and news.
+  defp attempt_due?(nil, _now, _interval), do: true
 
-  defp weather_due?(last_attempted_at, now, interval) do
+  defp attempt_due?(last_attempted_at, now, interval) do
     DateTime.diff(now, last_attempted_at) >= interval
   end
 

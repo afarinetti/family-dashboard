@@ -3,7 +3,7 @@ defmodule FamilyDashboard.HeartbeatTest do
   use Oban.Testing, repo: FamilyDashboard.Repo
 
   alias FamilyDashboard.{Dashboard, Heartbeat}
-  alias FamilyDashboard.Workers.{CalendarSync, WeatherDailyRefresh, WeatherRefresh}
+  alias FamilyDashboard.Workers.{CalendarSync, NewsRefresh, WeatherDailyRefresh, WeatherRefresh}
 
   # Settings is a singleton; the test DB is seeded with one row (via ash.setup),
   # so configure that row rather than creating a duplicate.
@@ -122,6 +122,28 @@ defmodule FamilyDashboard.HeartbeatTest do
       assert :ok = Heartbeat.run()
 
       refute_enqueued(worker: WeatherDailyRefresh)
+    end
+  end
+
+  describe "run/0 — news" do
+    test "enqueues a news refresh when never attempted" do
+      create_setting()
+
+      assert :ok = Heartbeat.run()
+
+      assert_enqueued(worker: NewsRefresh)
+    end
+
+    test "does not re-enqueue news within its interval" do
+      create_setting(%{news_refresh_minutes: 15})
+      recent = DateTime.utc_now() |> DateTime.add(-5, :minute) |> DateTime.truncate(:second)
+
+      {:ok, setting} = Dashboard.current_setting()
+      Dashboard.record_news_attempt!(setting, %{news_last_attempted_at: recent})
+
+      assert :ok = Heartbeat.run()
+
+      refute_enqueued(worker: NewsRefresh)
     end
   end
 
