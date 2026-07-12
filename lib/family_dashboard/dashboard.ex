@@ -49,5 +49,18 @@ defmodule FamilyDashboard.Dashboard do
       define :update_setting, action: :update
       define :record_weather_status, action: :record_weather_status
     end
+
+    resource FamilyDashboard.NewsFeed do
+      define :list_news_feeds, action: :read
+      define :get_news_feed, action: :read, get_by: [:id]
+      define :create_news_feed, action: :create
+      define :update_news_feed, action: :update
+      define :destroy_news_feed, action: :destroy
+    end
+
+    resource FamilyDashboard.NewsItem do
+      define :create_news_item, action: :create
+      define :list_news_items, action: :read
+    end
   end
 end
