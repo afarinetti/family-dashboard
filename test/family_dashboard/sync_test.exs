@@ -285,6 +285,8 @@ defmodule FamilyDashboard.SyncTest do
         ]
       }
 
+      alerts = %{"success" => true, "response" => []}
+
       fn conn ->
         conn = Plug.Conn.fetch_query_params(conn)
 
@@ -299,6 +301,9 @@ defmodule FamilyDashboard.SyncTest do
           String.starts_with?(conn.request_path, "/forecasts/") and
               conn.query_params["filter"] == "day" ->
             Req.Test.json(conn, daily)
+
+          String.starts_with?(conn.request_path, "/alerts/") ->
+            Req.Test.json(conn, alerts)
         end
       end
     end
@@ -319,6 +324,131 @@ defmodule FamilyDashboard.SyncTest do
     test "the current+hourly refresh does not fetch daily data" do
       assert :ok = Sync.refresh_weather(plug: weather_plug())
       assert Dashboard.latest_weather!().daily == []
+    end
+
+    test "persists and broadcasts alerts fetched alongside current+hourly" do
+      plug = fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+
+        cond do
+          String.starts_with?(conn.request_path, "/conditions/") ->
+            Req.Test.json(conn, %{
+              "success" => true,
+              "response" => [%{"periods" => [%{"timestamp" => 1_783_000_000, "tempF" => 70.0}]}]
+            })
+
+          String.starts_with?(conn.request_path, "/forecasts/") and
+              conn.query_params["filter"] == "1hr" ->
+            Req.Test.json(conn, %{"success" => true, "response" => [%{"periods" => []}]})
+
+          String.starts_with?(conn.request_path, "/alerts/") ->
+            Req.Test.json(conn, %{
+              "success" => true,
+              "response" => [
+                %{
+                  "details" => %{
+                    "type" => "AW.TS.SV",
+                    "name" => "Severe Thunderstorm Warning",
+                    "priority" => 2,
+                    "cat" => "thunderstorm"
+                  },
+                  "timestamps" => %{"begins" => 1_783_000_000, "expires" => 1_783_003_600}
+                }
+              ]
+            })
+        end
+      end
+
+      assert :ok = Sync.refresh_weather(plug: plug)
+
+      reading = Dashboard.latest_weather!()
+      assert length(reading.alerts) == 1
+      assert List.first(reading.alerts).name == "Severe Thunderstorm Warning"
+      assert List.first(reading.alerts).severity == "severe"
+    end
+
+    test "a failing alerts fetch still yields a successful reading, with zero alerts" do
+      plug = fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+
+        cond do
+          String.starts_with?(conn.request_path, "/conditions/") ->
+            Req.Test.json(conn, %{
+              "success" => true,
+              "response" => [%{"periods" => [%{"timestamp" => 1_783_000_000, "tempF" => 70.0}]}]
+            })
+
+          String.starts_with?(conn.request_path, "/forecasts/") and
+              conn.query_params["filter"] == "1hr" ->
+            Req.Test.json(conn, %{"success" => true, "response" => [%{"periods" => []}]})
+
+          String.starts_with?(conn.request_path, "/alerts/") ->
+            Plug.Conn.send_resp(conn, 500, "boom")
+        end
+      end
+
+      assert :ok = Sync.refresh_weather(plug: plug)
+
+      reading = Dashboard.latest_weather!()
+      assert reading.temp == 70.0
+      assert reading.alerts == []
+    end
+
+    test "alerts are not carried forward when a later refresh's alert fetch fails" do
+      populated_plug = fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+
+        cond do
+          String.starts_with?(conn.request_path, "/conditions/") ->
+            Req.Test.json(conn, %{
+              "success" => true,
+              "response" => [%{"periods" => [%{"timestamp" => 1_783_000_000, "tempF" => 70.0}]}]
+            })
+
+          String.starts_with?(conn.request_path, "/forecasts/") and
+              conn.query_params["filter"] == "1hr" ->
+            Req.Test.json(conn, %{"success" => true, "response" => [%{"periods" => []}]})
+
+          String.starts_with?(conn.request_path, "/alerts/") ->
+            Req.Test.json(conn, %{
+              "success" => true,
+              "response" => [
+                %{
+                  "details" => %{"type" => "AW.TS.SV", "name" => "Severe Thunderstorm Warning"},
+                  "timestamps" => %{}
+                }
+              ]
+            })
+        end
+      end
+
+      failing_alerts_plug = fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+
+        cond do
+          String.starts_with?(conn.request_path, "/conditions/") ->
+            Req.Test.json(conn, %{
+              "success" => true,
+              "response" => [%{"periods" => [%{"timestamp" => 1_783_000_000, "tempF" => 71.0}]}]
+            })
+
+          String.starts_with?(conn.request_path, "/forecasts/") and
+              conn.query_params["filter"] == "1hr" ->
+            Req.Test.json(conn, %{"success" => true, "response" => [%{"periods" => []}]})
+
+          String.starts_with?(conn.request_path, "/alerts/") ->
+            Plug.Conn.send_resp(conn, 500, "boom")
+        end
+      end
+
+      assert :ok = Sync.refresh_weather(plug: populated_plug)
+      assert length(Dashboard.latest_weather!().alerts) == 1
+
+      assert :ok = Sync.refresh_weather(plug: failing_alerts_plug)
+      # Unlike `daily`, a failed alerts fetch on this NEW reading must not
+      # inherit the previous reading's alerts — a stale severe-weather
+      # warning is worse than a blank card.
+      assert Dashboard.latest_weather!().alerts == []
     end
   end
 
@@ -423,6 +553,9 @@ defmodule FamilyDashboard.SyncTest do
           String.starts_with?(conn.request_path, "/forecasts/") and
               conn.query_params["filter"] == "day" ->
             Req.Test.json(conn, daily_no_icon)
+
+          String.starts_with?(conn.request_path, "/alerts/") ->
+            Req.Test.json(conn, %{"success" => true, "response" => []})
         end
       end
 

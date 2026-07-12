@@ -67,6 +67,7 @@ defmodule FamilyDashboard.Sync do
       true ->
         case Weather.fetch(setting.latitude, setting.longitude, setting.units || "metric", opts) do
           {:ok, attrs} ->
+            attrs = Map.put(attrs, :alerts, best_effort_alerts(setting, opts))
             record_weather(attrs)
             record_weather_status(setting, nil)
             broadcast("weather", :weather_updated)
@@ -79,11 +80,13 @@ defmodule FamilyDashboard.Sync do
     end
   end
 
-  # Creates the new reading + its hourly rows, and copies the previous
-  # reading's daily rows (+ high/low) forward so the 7-day widget stays
-  # populated between the less-frequent daily job's runs.
+  # Creates the new reading + its hourly and alert rows, and copies the
+  # previous reading's daily rows (+ high/low) forward so the 7-day widget
+  # stays populated between the less-frequent daily job's runs. Alerts are
+  # deliberately NOT copied forward — see best_effort_alerts/2.
   defp record_weather(attrs) do
-    {hourly, reading_attrs} = Map.pop(attrs, :hourly, [])
+    {hourly, attrs} = Map.pop(attrs, :hourly, [])
+    {alerts, reading_attrs} = Map.pop(attrs, :alerts, [])
     prev = latest_reading()
 
     reading_attrs =
@@ -97,6 +100,10 @@ defmodule FamilyDashboard.Sync do
 
         Enum.each(hourly, fn h ->
           Dashboard.create_weather_hourly!(Map.put(h, :weather_reading_id, reading.id))
+        end)
+
+        Enum.each(alerts, fn a ->
+          Dashboard.create_weather_alert!(Map.put(a, :weather_reading_id, reading.id))
         end)
 
         if prev do
@@ -122,6 +129,23 @@ defmodule FamilyDashboard.Sync do
       end)
 
     :ok
+  end
+
+  # Best-effort: a failed or empty alerts fetch yields zero alerts on the new
+  # reading rather than raising or blocking the current+hourly refresh — a
+  # blank Weather Alerts card is far safer than either crashing the sync or
+  # (as `daily` does) carrying a possibly-stale severe-weather warning
+  # forward from the previous reading.
+  defp best_effort_alerts(setting, opts) do
+    case Weather.fetch_alerts(
+           setting.latitude,
+           setting.longitude,
+           setting.units || "metric",
+           opts
+         ) do
+      {:ok, alerts} -> alerts
+      {:error, _} -> []
+    end
   end
 
   @doc """
