@@ -325,6 +325,52 @@ defmodule FamilyDashboard.SyncTest do
       assert {:error, :no_daily} = Sync.refresh_daily(plug: empty)
     end
 
+    test "borrows today's icon/condition from the hourly forecast when the daily endpoint's weather is null" do
+      # Mirrors production: OWM's /timeline/1day reliably returns "weather": null
+      # for every day on this account, while /current and /timeline/1h return it.
+      current = %{
+        "data" => [
+          %{
+            "dt" => 1_783_000_000,
+            "temp" => 70.0,
+            "weather" => [%{"description" => "light rain", "icon" => "10d"}]
+          }
+        ]
+      }
+
+      hourly = %{
+        "data" => [
+          %{
+            "dt" => 1_783_000_000,
+            "temp" => 70.0,
+            "pop" => 0.0,
+            "weather" => [%{"description" => "light rain", "icon" => "10d"}]
+          }
+        ]
+      }
+
+      daily_no_weather = %{
+        "data" => [
+          %{"dt" => 1_783_000_000, "temp" => %{"min" => 60.0, "max" => 80.0}, "weather" => nil}
+        ]
+      }
+
+      plug = fn conn ->
+        case conn.request_path do
+          "/data/4.0/onecall/current" -> Req.Test.json(conn, current)
+          "/data/4.0/onecall/timeline/1h" -> Req.Test.json(conn, hourly)
+          "/data/4.0/onecall/timeline/1day" -> Req.Test.json(conn, daily_no_weather)
+        end
+      end
+
+      assert :ok = Sync.refresh_weather(plug: plug)
+      assert :ok = Sync.refresh_daily(plug: plug)
+
+      today = Dashboard.latest_weather!().daily |> List.first()
+      assert today.icon == "10d"
+      assert today.condition == "light rain"
+    end
+
     test "records a human-readable weather_last_error on a fetch failure" do
       plug = fn conn -> Plug.Conn.send_resp(conn, 401, ~s({"message":"Invalid API key"})) end
 

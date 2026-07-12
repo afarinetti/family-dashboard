@@ -157,6 +157,7 @@ defmodule FamilyDashboard.Sync do
   defp apply_daily_to_latest(days) do
     case latest_reading() do
       %{} = reading ->
+        days = patch_today_weather(days, reading.hourly)
         today = List.first(days) || %{}
 
         {:ok, _} =
@@ -179,6 +180,19 @@ defmodule FamilyDashboard.Sync do
         {:error, :no_reading}
     end
   end
+
+  # OWM's /timeline/1day reliably returns "weather": null for every day on this
+  # account (confirmed against the live API), so today's icon/condition would
+  # otherwise be blank. The hourly endpoint (same One Call 4.0 product) does
+  # return real weather, so borrow it for today only — hourly only reaches
+  # ~19h out, so days 1-6 have no equivalent source and stay as OWM sends them.
+  defp patch_today_weather([%{icon: nil} = first | rest], [
+         %{icon: icon, condition: condition} | _
+       ]) do
+    [Map.merge(first, %{icon: icon, condition: condition}) | rest]
+  end
+
+  defp patch_today_weather(days, _hourly), do: days
 
   defp latest_reading do
     case Dashboard.latest_weather() do
