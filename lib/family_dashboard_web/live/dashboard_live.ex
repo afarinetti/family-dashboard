@@ -280,6 +280,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(FamilyDashboard.PubSub, "events")
       Phoenix.PubSub.subscribe(FamilyDashboard.PubSub, "weather")
+      Phoenix.PubSub.subscribe(FamilyDashboard.PubSub, "news")
       Process.send_after(self(), :tick, @tick_ms)
     end
 
@@ -291,7 +292,8 @@ defmodule FamilyDashboardWeb.DashboardLive do
      |> assign_clock()
      |> load_weather()
      |> assign_active_alerts()
-     |> load_events()}
+     |> load_events()
+     |> load_news_items()}
   end
 
   @impl true
@@ -310,6 +312,8 @@ defmodule FamilyDashboardWeb.DashboardLive do
   def handle_info(:weather_updated, socket) do
     {:noreply, socket |> load_weather() |> assign_active_alerts()}
   end
+
+  def handle_info(:news_updated, socket), do: {:noreply, load_news_items(socket)}
 
   defp assign_setting(socket) do
     setting =
@@ -398,6 +402,36 @@ defmodule FamilyDashboardWeb.DashboardLive do
     assign(socket, :events_by_day, grouped)
   end
 
+  defp load_news_items(socket) do
+    items =
+      Dashboard.list_news_items!()
+      |> Enum.sort_by(&FamilyDashboard.NewsItem.effective_time/1, {:desc, DateTime})
+
+    assign(socket, :news_items, items)
+  end
+
+  # A stable key derived from the current items' ids — used as (part of) the
+  # ticker's DOM id. Unchanged across the 30s clock tick (same items, same
+  # key, phx-update="ignore" leaves the node alone), but changes the moment
+  # News.refresh_all/1 actually adds or removes an item, which remounts the
+  # node and restarts the animation on genuinely new content.
+  defp news_items_key(items), do: items |> Enum.map(& &1.id) |> :erlang.phash2()
+
+  # Scrolls at a roughly constant reading speed regardless of how many
+  # headlines are queued, instead of a fixed-duration animation that would
+  # crawl with few headlines and blur past with many. Clamped to a 20s floor
+  # so one or two short headlines don't zip by.
+  @marquee_chars_per_second 10
+
+  defp marquee_duration(items) do
+    total_chars =
+      items
+      |> Enum.map(&(String.length(&1.title) + String.length(&1.news_feed.label)))
+      |> Enum.sum()
+
+    max(round(total_chars / @marquee_chars_per_second), 20)
+  end
+
   # All-day events are date-only (stored at UTC midnight of their date) and must
   # not be timezone-shifted; timed events resolve to the local calendar day.
   defp event_date(%{all_day: true, starts_at: starts_at}, _tz), do: DateTime.to_date(starts_at)
@@ -416,209 +450,243 @@ defmodule FamilyDashboardWeb.DashboardLive do
         hourly_min: hourly_min,
         hourly_max: hourly_max,
         daily_min: daily_min,
-        daily_max: daily_max
+        daily_max: daily_max,
+        news_ticker_id: "news-ticker-#{news_items_key(assigns.news_items)}",
+        marquee_duration: marquee_duration(assigns.news_items)
       )
 
     ~H"""
     <Layouts.app flash={@flash}>
-      <!-- Portrait wall display (1080w x 1920h): 40% left rail, 60% right column. -->
-      <div class="h-screen w-screen overflow-hidden bg-base-200 p-3 flex flex-row gap-2.5">
-        <!-- Left rail (30%): clock/date, weather, weather alerts -->
-        <div class="w-[40%] shrink-0 flex flex-col gap-3 overflow-hidden">
-          <!-- Clock / greeting -->
-          <section class="card card-sm bg-base-100 shadow-sm shrink-0">
-            <div class="card-body">
-              <p class="text-lg font-medium text-base-content/70">{@setting.greeting}</p>
-              <p class="flex items-baseline gap-2.5 leading-none font-bold tabular-nums tracking-tight whitespace-nowrap">
-                <span class="text-[5.4rem] whitespace-nowrap">
-                  <!-- Hour/colon/minute packed with no source whitespace between tags,
-                       so HEEx doesn't insert a stray space between the digits. -->
-                  <span class="inline-block min-w-[2ch] text-right">{Calendar.strftime(
-                    @now,
-                    "%-I"
-                  )}</span><span class="inline-block -translate-y-[0.08em] animate-blink motion-reduce:animate-none">:</span><span class="inline-block">{Calendar.strftime(
-                    @now,
-                    "%M"
-                  )}</span>
-                </span>
-                <span class="text-[1.7rem] font-semibold text-base-content/55">
-                  {Calendar.strftime(@now, "%p")}
-                </span>
-              </p>
-              <p class="text-xl text-base-content/70 text-center">
-                {Calendar.strftime(@now, "%A, %B %-d")}
-              </p>
-            </div>
-          </section>
-
-          <!-- Current weather -->
-          <section class="card card-sm bg-base-100 shadow-sm shrink-0">
-            <div class="card-body">
-              <.card_title label="Weather">
-                <:subtitle :if={@setting.city_label}>{@setting.city_label}</:subtitle>
-              </.card_title>
-              <div :if={@weather} class="flex flex-col gap-1">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="flex items-center gap-3">
-                    <span class="text-7xl">{weather_emoji(@weather.icon)}</span>
-                    <p class="text-7xl font-bold tabular-nums">{round_temp(@weather.temp)}°</p>
-                  </div>
-                  <div class="text-right shrink-0">
-                    <p :if={@weather.high && @weather.low} class="text-base text-base-content/60">
-                      H {round_temp(@weather.high)}°
-                    </p>
-                    <p :if={@weather.high && @weather.low} class="text-base text-base-content/60">
-                      L {round_temp(@weather.low)}°
-                    </p>
-                    <p class="text-base text-base-content/60">
-                      feels {round_temp(@weather.feels_like)}°
-                    </p>
-                  </div>
-                </div>
-                <p class="text-base text-base-content/70 capitalize">{@weather.condition}</p>
-              </div>
-              <div :if={is_nil(@weather)}>
-                <p :if={@setting.weather_last_error} class="text-base text-warning">
-                  Weather unavailable — {@setting.weather_last_error}
-                </p>
-                <p :if={is_nil(@setting.weather_last_error)} class="text-base text-base-content/50">
-                  No weather data yet.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <!-- 8-hour forecast -->
-          <section :if={@weather} class="card card-sm bg-base-100 shadow-sm shrink-0">
-            <div class="card-body">
-              <.card_title label="8 hour" />
-              <p :if={@weather.hourly == []} class="text-xs text-base-content/40">
-                Hourly forecast unavailable.
-              </p>
-              <div class="flex flex-col gap-2.5">
-                <div
-                  :for={hour <- @weather.hourly}
-                  class="grid grid-cols-[3.75rem_2.125rem_2.75rem_1fr_2.625rem] items-center gap-2 min-h-[2rem]"
-                >
-                  <span class="text-lg font-semibold tabular-nums whitespace-nowrap">
-                    <span class="inline-block min-w-[2ch] text-right">{hour_number(
-                      hour.forecast_time,
-                      @tz
-                    )}</span>
-                    <span>{hour_meridiem(
-                      hour.forecast_time,
-                      @tz
+      <!-- Portrait wall display (1080w x 1920h): 40% left rail, 60% right column,
+           full-width news ticker pinned to the bottom. -->
+      <div class="h-screen w-screen overflow-hidden bg-base-200 flex flex-col">
+        <div class="flex-1 min-h-0 p-3 flex flex-row gap-2.5">
+          <!-- Left rail (40%): clock/date, weather, weather alerts -->
+          <div class="w-[40%] shrink-0 flex flex-col gap-3 overflow-hidden">
+            <!-- Clock / greeting -->
+            <section class="card card-sm bg-base-100 shadow-sm shrink-0">
+              <div class="card-body">
+                <p class="text-lg font-medium text-base-content/70">{@setting.greeting}</p>
+                <p class="flex items-baseline gap-2.5 leading-none font-bold tabular-nums tracking-tight whitespace-nowrap">
+                  <span class="text-[5.4rem] whitespace-nowrap">
+                    <!-- Hour/colon/minute packed with no source whitespace between tags,
+                         so HEEx doesn't insert a stray space between the digits. -->
+                    <span class="inline-block min-w-[2ch] text-right">{Calendar.strftime(
+                      @now,
+                      "%-I"
+                    )}</span><span class="inline-block -translate-y-[0.08em] animate-blink motion-reduce:animate-none">:</span><span class="inline-block">{Calendar.strftime(
+                      @now,
+                      "%M"
                     )}</span>
                   </span>
-                  <span class="text-2xl text-center">{weather_emoji(hour.icon)}</span>
-                  <span class="text-lg font-bold text-right tabular-nums">{round_temp(hour.temp)}°</span>
-                  <span class="relative h-[7px] rounded-full bg-base-300">
-                    <span
-                      class="absolute inset-y-0 left-0 rounded-full"
-                      style={hourly_bar_style(hour, @hourly_min, @hourly_max)}
-                    ></span>
+                  <span class="text-[1.7rem] font-semibold text-base-content/55">
+                    {Calendar.strftime(@now, "%p")}
                   </span>
-                  <span :if={pop_pct(hour.pop)} class="text-base text-info text-right tabular-nums">
-                    {pop_pct(hour.pop)}%
-                  </span>
-                </div>
+                </p>
+                <p class="text-xl text-base-content/70 text-center">
+                  {Calendar.strftime(@now, "%A, %B %-d")}
+                </p>
               </div>
-            </div>
-          </section>
+            </section>
 
-          <!-- 7-day forecast -->
-          <section :if={@weather} class="card card-sm bg-base-100 shadow-sm shrink-0">
-            <div class="card-body">
-              <.card_title label="7-day" />
-              <p :if={@weather.daily == []} class="text-xs text-base-content/40">
-                Daily forecast unavailable right now.
-              </p>
-              <div class="flex flex-col gap-2.5">
-                <div
-                  :for={day <- @weather.daily}
-                  class="grid grid-cols-[3.5rem_2.125rem_2.375rem_1fr_2.375rem_2.625rem] items-center gap-2 min-h-[2rem]"
-                >
-                  <span class="text-lg font-semibold">{day_short_label(day.forecast_date, @today)}</span>
-                  <span class="text-2xl text-center">{weather_emoji(day.icon)}</span>
-                  <span class="text-lg text-base-content/70 text-right tabular-nums">{round_temp(
-                    day.low
-                  )}°</span>
-                  <span class="relative h-[7px] rounded-full bg-base-300">
-                    <span
-                      class="absolute inset-y-0 rounded-full"
-                      style={daily_range_style(day, @daily_min, @daily_max)}
-                    ></span>
-                    <span
-                      class="absolute top-1/2 h-[13px] w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-sm bg-base-100 shadow-[0_0_0_1.5px_oklch(0%_0_0_/_0.25)]"
-                      style={daily_avg_marker_style(day, @daily_min, @daily_max)}
-                    ></span>
-                  </span>
-                  <span class="text-lg font-bold text-right tabular-nums">{round_temp(day.high)}°</span>
-                  <span :if={pop_pct(day.pop)} class="text-base text-info text-right tabular-nums">
-                    {pop_pct(day.pop)}%
-                  </span>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <!-- Weather Alerts -->
-          <section :if={@active_alerts != []} class="card card-sm bg-base-100 shadow-sm shrink-0">
-            <div class="card-body">
-              <.card_title label="Weather Alerts">
-                <:subtitle>{length(@active_alerts)}</:subtitle>
-              </.card_title>
-              <div class="flex flex-col gap-2">
-                <div
-                  :for={alert <- @active_alerts}
-                  class={"alert #{severity_color(alert.severity)} flex-col items-start gap-0.5 py-2"}
-                >
-                  <div class="flex items-baseline justify-between gap-2 w-full">
-                    <span class="font-semibold">{alert.name}</span>
-                    <span class="text-sm opacity-80 shrink-0">{alert_until(alert.expires_at, @tz)}</span>
+            <!-- Current weather -->
+            <section class="card card-sm bg-base-100 shadow-sm shrink-0">
+              <div class="card-body">
+                <.card_title label="Weather">
+                  <:subtitle :if={@setting.city_label}>{@setting.city_label}</:subtitle>
+                </.card_title>
+                <div :if={@weather} class="flex flex-col gap-1">
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                      <span class="text-7xl">{weather_emoji(@weather.icon)}</span>
+                      <p class="text-7xl font-bold tabular-nums">{round_temp(@weather.temp)}°</p>
+                    </div>
+                    <div class="text-right shrink-0">
+                      <p :if={@weather.high && @weather.low} class="text-base text-base-content/60">
+                        H {round_temp(@weather.high)}°
+                      </p>
+                      <p :if={@weather.high && @weather.low} class="text-base text-base-content/60">
+                        L {round_temp(@weather.low)}°
+                      </p>
+                      <p class="text-base text-base-content/60">
+                        feels {round_temp(@weather.feels_like)}°
+                      </p>
+                    </div>
                   </div>
-                  <p :if={@setting.alerts_show_body && alert.body} class="text-sm opacity-90">
-                    {truncate_body(alert.body)}
+                  <p class="text-base text-base-content/70 capitalize">{@weather.condition}</p>
+                </div>
+                <div :if={is_nil(@weather)}>
+                  <p :if={@setting.weather_last_error} class="text-base text-warning">
+                    Weather unavailable — {@setting.weather_last_error}
+                  </p>
+                  <p :if={is_nil(@setting.weather_last_error)} class="text-base text-base-content/50">
+                    No weather data yet.
                   </p>
                 </div>
               </div>
-            </div>
-          </section>
-        </div>
+            </section>
 
-        <!-- Right column (70%): agenda -->
-        <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
-          <!-- Agenda fills the remaining height; a single column clips at the bottom edge -->
-          <section class="flex-1 min-h-0 card bg-base-100 shadow-sm">
-            <div class="card-body min-h-0 overflow-hidden">
-              <h2 class="text-2xl text-base-content/60 mb-2">Upcoming</h2>
-              <p :if={@events_by_day == []} class="text-xl text-base-content/50 py-4">
-                Nothing scheduled in the next {@agenda_days} days.
-              </p>
-              <div class="flex flex-col gap-y-4 overflow-hidden">
-                <div :for={{date, events} <- @events_by_day}>
-                  <h3 class="text-2xl font-semibold text-base-content/80 border-b border-base-300 pb-1 mb-2">
-                    {day_label(date, @today)}
-                  </h3>
-                  <ul class="space-y-2">
-                    <li
-                      :for={event <- events}
-                      class="flex items-baseline gap-3 text-xl border-l-2 border-base-300 pl-3"
-                      style={event_border_style(event)}
-                    >
-                      <span class="w-28 shrink-0 text-base-content/60 tabular-nums">
-                        {event_time(event, @tz)}
-                      </span>
-                      <span class="font-medium">{event.title}</span>
-                      <span :if={event.location} class="text-lg text-base-content/50 truncate">
-                        · {event.location}
-                      </span>
-                    </li>
-                  </ul>
+            <!-- 8-hour forecast -->
+            <section :if={@weather} class="card card-sm bg-base-100 shadow-sm shrink-0">
+              <div class="card-body">
+                <.card_title label="8 hour" />
+                <p :if={@weather.hourly == []} class="text-xs text-base-content/40">
+                  Hourly forecast unavailable.
+                </p>
+                <div class="flex flex-col gap-2.5">
+                  <div
+                    :for={hour <- @weather.hourly}
+                    class="grid grid-cols-[3.75rem_2.125rem_2.75rem_1fr_2.625rem] items-center gap-2 min-h-[2rem]"
+                  >
+                    <span class="text-lg font-semibold tabular-nums whitespace-nowrap">
+                      <span class="inline-block min-w-[2ch] text-right">{hour_number(
+                        hour.forecast_time,
+                        @tz
+                      )}</span>
+                      <span>{hour_meridiem(
+                        hour.forecast_time,
+                        @tz
+                      )}</span>
+                    </span>
+                    <span class="text-2xl text-center">{weather_emoji(hour.icon)}</span>
+                    <span class="text-lg font-bold text-right tabular-nums">{round_temp(hour.temp)}°</span>
+                    <span class="relative h-[7px] rounded-full bg-base-300">
+                      <span
+                        class="absolute inset-y-0 left-0 rounded-full"
+                        style={hourly_bar_style(hour, @hourly_min, @hourly_max)}
+                      ></span>
+                    </span>
+                    <span :if={pop_pct(hour.pop)} class="text-base text-info text-right tabular-nums">
+                      {pop_pct(hour.pop)}%
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-          </section>
+            </section>
+
+            <!-- 7-day forecast -->
+            <section :if={@weather} class="card card-sm bg-base-100 shadow-sm shrink-0">
+              <div class="card-body">
+                <.card_title label="7-day" />
+                <p :if={@weather.daily == []} class="text-xs text-base-content/40">
+                  Daily forecast unavailable right now.
+                </p>
+                <div class="flex flex-col gap-2.5">
+                  <div
+                    :for={day <- @weather.daily}
+                    class="grid grid-cols-[3.5rem_2.125rem_2.375rem_1fr_2.375rem_2.625rem] items-center gap-2 min-h-[2rem]"
+                  >
+                    <span class="text-lg font-semibold">{day_short_label(day.forecast_date, @today)}</span>
+                    <span class="text-2xl text-center">{weather_emoji(day.icon)}</span>
+                    <span class="text-lg text-base-content/70 text-right tabular-nums">{round_temp(
+                      day.low
+                    )}°</span>
+                    <span class="relative h-[7px] rounded-full bg-base-300">
+                      <span
+                        class="absolute inset-y-0 rounded-full"
+                        style={daily_range_style(day, @daily_min, @daily_max)}
+                      ></span>
+                      <span
+                        class="absolute top-1/2 h-[13px] w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-sm bg-base-100 shadow-[0_0_0_1.5px_oklch(0%_0_0_/_0.25)]"
+                        style={daily_avg_marker_style(day, @daily_min, @daily_max)}
+                      ></span>
+                    </span>
+                    <span class="text-lg font-bold text-right tabular-nums">{round_temp(day.high)}°</span>
+                    <span :if={pop_pct(day.pop)} class="text-base text-info text-right tabular-nums">
+                      {pop_pct(day.pop)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- Weather Alerts -->
+            <section :if={@active_alerts != []} class="card card-sm bg-base-100 shadow-sm shrink-0">
+              <div class="card-body">
+                <.card_title label="Weather Alerts">
+                  <:subtitle>{length(@active_alerts)}</:subtitle>
+                </.card_title>
+                <div class="flex flex-col gap-2">
+                  <div
+                    :for={alert <- @active_alerts}
+                    class={"alert #{severity_color(alert.severity)} flex-col items-start gap-0.5 py-2"}
+                  >
+                    <div class="flex items-baseline justify-between gap-2 w-full">
+                      <span class="font-semibold">{alert.name}</span>
+                      <span class="text-sm opacity-80 shrink-0">{alert_until(alert.expires_at, @tz)}</span>
+                    </div>
+                    <p :if={@setting.alerts_show_body && alert.body} class="text-sm opacity-90">
+                      {truncate_body(alert.body)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- Right column (60%): agenda -->
+          <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
+            <!-- Agenda fills the remaining height; a single column clips at the bottom edge -->
+            <section class="flex-1 min-h-0 card bg-base-100 shadow-sm">
+              <div class="card-body min-h-0 overflow-hidden">
+                <h2 class="text-2xl text-base-content/60 mb-2">Upcoming</h2>
+                <p :if={@events_by_day == []} class="text-xl text-base-content/50 py-4">
+                  Nothing scheduled in the next {@agenda_days} days.
+                </p>
+                <div class="flex flex-col gap-y-4 overflow-hidden">
+                  <div :for={{date, events} <- @events_by_day}>
+                    <h3 class="text-2xl font-semibold text-base-content/80 border-b border-base-300 pb-1 mb-2">
+                      {day_label(date, @today)}
+                    </h3>
+                    <ul class="space-y-2">
+                      <li
+                        :for={event <- events}
+                        class="flex items-baseline gap-3 text-xl border-l-2 border-base-300 pl-3"
+                        style={event_border_style(event)}
+                      >
+                        <span class="w-28 shrink-0 text-base-content/60 tabular-nums">
+                          {event_time(event, @tz)}
+                        </span>
+                        <span class="font-medium">{event.title}</span>
+                        <span :if={event.location} class="text-lg text-base-content/50 truncate">
+                          · {event.location}
+                        </span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <!-- News ticker: content is server-driven (@news_items), motion is pure CSS.
+             phx-update="ignore" + an items-derived id means a clock tick (unchanged
+             items) never touches this node — the scroll keeps running uninterrupted;
+             only a genuine news change (a different id) remounts it. -->
+        <div
+          :if={@news_items != []}
+          id={@news_ticker_id}
+          phx-update="ignore"
+          class="shrink-0 w-full overflow-hidden bg-neutral text-neutral-content"
+        >
+          <div
+            class="flex whitespace-nowrap animate-marquee py-2"
+            style={"--marquee-duration: #{@marquee_duration}s"}
+          >
+            <span :for={item <- @news_items} class="flex items-center gap-2 pr-10 shrink-0">
+              <span class="badge badge-sm badge-outline">{item.news_feed.label}</span>
+              <span class="text-lg">{item.title}</span>
+            </span>
+            <span
+              :for={item <- @news_items}
+              class="flex items-center gap-2 pr-10 shrink-0"
+              aria-hidden="true"
+            >
+              <span class="badge badge-sm badge-outline">{item.news_feed.label}</span>
+              <span class="text-lg">{item.title}</span>
+            </span>
+          </div>
         </div>
       </div>
     </Layouts.app>

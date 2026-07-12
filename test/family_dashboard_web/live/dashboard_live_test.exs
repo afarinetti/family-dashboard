@@ -166,10 +166,56 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     assert html =~ "Invalid or inactive API key"
   end
 
-  test "does not render a News card", %{conn: conn} do
+  test "shows no news ticker when there are no news items", %{conn: conn} do
     {:ok, _live, html} = live(conn, ~p"/")
 
-    refute html =~ "News"
+    refute html =~ "animate-marquee"
+  end
+
+  test "renders a news item's source badge and headline in the ticker", %{conn: conn} do
+    feed =
+      Dashboard.create_news_feed!(%{url: "https://example.com/rss.xml", label: "Example Feed"})
+
+    Dashboard.create_news_item!(%{
+      news_feed_id: feed.id,
+      guid: "item-1",
+      title: "Council approves new park",
+      url: "https://example.com/park",
+      published_at: DateTime.utc_now() |> DateTime.truncate(:second)
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    assert html =~ "Example Feed"
+    assert html =~ "Council approves new park"
+    assert html =~ "animate-marquee"
+  end
+
+  test "orders ticker items newest first across feeds", %{conn: conn} do
+    feed =
+      Dashboard.create_news_feed!(%{url: "https://example.com/rss.xml", label: "Example Feed"})
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Dashboard.create_news_item!(%{
+      news_feed_id: feed.id,
+      guid: "older",
+      title: "Older headline",
+      url: "https://example.com/older",
+      published_at: DateTime.add(now, -3600, :second)
+    })
+
+    Dashboard.create_news_item!(%{
+      news_feed_id: feed.id,
+      guid: "newer",
+      title: "Newer headline",
+      url: "https://example.com/newer",
+      published_at: now
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    assert html =~ ~r/Newer headline.*Older headline/s
   end
 
   test "shows the alerts card for an active alert that meets the default severity threshold", %{
