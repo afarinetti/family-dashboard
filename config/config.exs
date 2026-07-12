@@ -22,7 +22,8 @@ config :family_dashboard, Oban,
     {Oban.Plugins.Cron,
      crontab: [
        {"0 3 * * *", FamilyDashboard.Workers.Backup},
-       {"0 3 * * *", FamilyDashboard.Workers.WeatherReap}
+       {"0 3 * * *", FamilyDashboard.Workers.WeatherReap},
+       {"0 3 * * *", FamilyDashboard.Workers.NewsReap}
      ]}
   ]
 
