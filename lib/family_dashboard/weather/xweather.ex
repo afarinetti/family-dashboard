@@ -89,7 +89,7 @@ defmodule FamilyDashboard.Weather.Xweather do
   end
 
   @doc """
-  Fetches active weather alerts for `lat`/`lon`. Returns `{:ok, :no_alerts}`
+  Fetches active weather alerts for `lat`/`lon`. Returns `{:error, :no_alerts}`
   when the location has none.
   """
   @impl true

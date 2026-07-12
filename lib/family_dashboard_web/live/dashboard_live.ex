@@ -298,7 +298,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
   def handle_info(:tick, socket) do
     Process.send_after(self(), :tick, @tick_ms)
     prev_today = socket.assigns.today
-    socket = socket |> assign_clock() |> assign_active_alerts()
+    socket = socket |> assign_setting() |> assign_clock() |> assign_active_alerts()
 
     # Reload the agenda when the local day rolls over.
     socket = if socket.assigns.today != prev_today, do: load_events(socket), else: socket

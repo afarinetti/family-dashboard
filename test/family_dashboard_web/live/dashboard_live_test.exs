@@ -224,6 +224,40 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     refute html =~ "Frost Advisory"
   end
 
+  test "picks up a live setting change on the next clock tick, without remounting", %{
+    conn: conn
+  } do
+    {:ok, setting} = Dashboard.current_setting()
+
+    reading =
+      Dashboard.record_weather!(%{
+        observed_at: DateTime.utc_now() |> DateTime.truncate(:second),
+        temp: 70.0
+      })
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Dashboard.create_weather_alert!(%{
+      weather_reading_id: reading.id,
+      severity: "moderate",
+      name: "Frost Advisory",
+      begins_at: DateTime.add(now, -600, :second),
+      expires_at: DateTime.add(now, 3600, :second)
+    })
+
+    {:ok, live, html} = live(conn, ~p"/")
+    assert html =~ "Frost Advisory"
+
+    # Raise the bar above the existing alert's severity while the LiveView is
+    # already mounted. The only way this can take effect is if :tick re-reads
+    # the setting instead of relying on the value captured at mount.
+    Dashboard.update_setting!(setting, %{alerts_min_severity: "severe"})
+
+    send(live.pid, :tick)
+
+    refute render(live) =~ "Frost Advisory"
+  end
+
   test "hides the alerts card once the alert has expired", %{conn: conn} do
     reading =
       Dashboard.record_weather!(%{
