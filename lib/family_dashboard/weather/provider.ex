@@ -40,6 +40,30 @@ defmodule FamilyDashboard.Weather.Provider do
   Xweather) must divide by 100 before returning it, or every value renders 100x
   too large.
 
+  ## `fetch_alerts/4`
+
+  Returns `{:ok, alerts}` where `alerts` is a list of maps (one per currently
+  active alert for this location), or `{:error, :no_alerts}` if the provider
+  has none. Each alert map:
+
+    * `:alert_type` — the provider's raw alert code, kept for debugging/display
+      (e.g. Xweather's `"AW.TS.MD"`), or `nil`
+    * `:severity` — normalized to one of `"extreme" | "severe" | "moderate" |
+      "minor"` — never a raw provider severity value
+    * `:priority` — a provider-specific numeric rank, lower is more
+      significant, or `nil`
+    * `:category` — a short category token (e.g. `"thunderstorm"`), or `nil`
+    * `:name` — the alert's title (e.g. `"Severe Thunderstorm Warning"`)
+    * `:body` — human-readable alert text, or `nil`
+    * `:color` — the provider's official hex color for this alert, or `nil`
+    * `:emergency` — boolean, or `nil`
+    * `:begins_at`, `:expires_at`, `:issued_at` — `DateTime.t()` or `nil`
+
+  Unlike `fetch_daily/4`'s carry-forward behavior in `Sync`, alert data is
+  never carried forward from a previous refresh — a failed or empty
+  `fetch_alerts/4` call must result in zero displayed alerts, since a stale
+  severe-weather warning is far more harmful than a stale forecast.
+
   ## Icon tokens
 
   `:icon` values are one of the provider-neutral strings below (or `nil`),
@@ -78,5 +102,6 @@ defmodule FamilyDashboard.Weather.Provider do
 
   @callback fetch_current_and_hourly(lat, lon, units, opts) :: {:ok, map()} | {:error, term()}
   @callback fetch_daily(lat, lon, units, opts) :: {:ok, [map()]} | {:error, :no_daily}
+  @callback fetch_alerts(lat, lon, units, opts) :: {:ok, [map()]} | {:error, :no_alerts}
   @callback credentials_configured?() :: boolean()
 end

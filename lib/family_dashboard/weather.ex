@@ -23,6 +23,12 @@ defmodule FamilyDashboard.Weather do
           {:ok, [map()]} | {:error, :no_daily}
   def fetch_daily(lat, lon, units, opts \\ []), do: provider().fetch_daily(lat, lon, units, opts)
 
+  @doc "Fetches active weather alerts. See `Provider.fetch_alerts/4`."
+  @spec fetch_alerts(number(), number(), String.t(), keyword()) ::
+          {:ok, [map()]} | {:error, :no_alerts}
+  def fetch_alerts(lat, lon, units, opts \\ []),
+    do: provider().fetch_alerts(lat, lon, units, opts)
+
   @doc "Whether the currently configured provider has the credentials it needs to make requests."
   @spec credentials_configured?() :: boolean()
   def credentials_configured?, do: provider().credentials_configured?()

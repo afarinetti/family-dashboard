@@ -339,6 +339,96 @@ defmodule FamilyDashboard.Weather.XweatherTest do
     end
   end
 
+  describe "fetch_alerts/4" do
+    @alerts %{
+      "success" => true,
+      "error" => nil,
+      "response" => [
+        %{
+          "id" => "abc123",
+          "details" => %{
+            "type" => "AW.TS.SV",
+            "name" => "Severe Thunderstorm Warning",
+            "emergency" => false,
+            "priority" => 2,
+            "color" => "FFA500",
+            "cat" => "thunderstorm",
+            "body" => "A severe thunderstorm warning has been issued.",
+            "bodyFull" => "A severe thunderstorm warning has been issued for this area."
+          },
+          "timestamps" => %{
+            "issued" => @now - 600,
+            "begins" => @now,
+            "expires" => @now + 3600
+          }
+        }
+      ]
+    }
+
+    test "returns normalized alerts" do
+      plug = fn conn ->
+        case conn.request_path do
+          "/alerts/41.88,-87.63" -> Req.Test.json(conn, @alerts)
+        end
+      end
+
+      assert {:ok, [alert]} = Xweather.fetch_alerts(41.88, -87.63, "imperial", plug: plug)
+
+      assert alert.alert_type == "AW.TS.SV"
+      assert alert.severity == "severe"
+      assert alert.priority == 2
+      assert alert.category == "thunderstorm"
+      assert alert.name == "Severe Thunderstorm Warning"
+      assert alert.body == "A severe thunderstorm warning has been issued."
+      assert alert.color == "FFA500"
+      assert alert.emergency == false
+      assert %DateTime{} = alert.begins_at
+      assert %DateTime{} = alert.expires_at
+      assert %DateTime{} = alert.issued_at
+    end
+
+    test "returns {:error, :no_alerts} when the response is empty" do
+      plug = fn conn ->
+        Req.Test.json(conn, %{"success" => true, "error" => nil, "response" => []})
+      end
+
+      assert {:error, :no_alerts} = Xweather.fetch_alerts(41.88, -87.63, "imperial", plug: plug)
+    end
+
+    test "returns {:error, :no_alerts} on an HTTP failure" do
+      plug = fn conn -> Plug.Conn.send_resp(conn, 500, "boom") end
+
+      assert {:error, :no_alerts} = Xweather.fetch_alerts(41.88, -87.63, "imperial", plug: plug)
+    end
+  end
+
+  describe "alert severity normalization (exhaustive over Xweather's EX/SV/MD/MN suffix)" do
+    for {type_code, expected_severity} <- [
+          {"AW.TS.EX", "extreme"},
+          {"AW.TS.SV", "severe"},
+          {"AW.TS.MD", "moderate"},
+          {"AW.TS.MN", "minor"},
+          {"AW.TS.UNKNOWN", "minor"}
+        ] do
+      test "classifies #{inspect(type_code)} as #{inspect(expected_severity)}" do
+        plug = fn conn ->
+          Req.Test.json(conn, %{
+            "success" => true,
+            "response" => [
+              %{
+                "details" => %{"type" => unquote(type_code), "name" => "Test"},
+                "timestamps" => %{}
+              }
+            ]
+          })
+        end
+
+        assert {:ok, [alert]} = Xweather.fetch_alerts(41.88, -87.63, "imperial", plug: plug)
+        assert alert.severity == unquote(expected_severity)
+      end
+    end
+  end
+
   describe "credentials_configured?/0" do
     test "false when client id/secret are unset" do
       with_env(nil, nil, fn ->

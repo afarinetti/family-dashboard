@@ -81,6 +81,17 @@ defmodule FamilyDashboard.Weather.OpenWeather do
     end
   end
 
+  @doc """
+  Not implemented — hurricane/tropical alert data lives in a separate feed
+  this adapter doesn't fetch (see `icon/1` below). Always returns
+  `{:error, :no_alerts}` so `Sync` treats this provider as having no alerts
+  rather than raising `UndefinedFunctionError`.
+  """
+  @impl true
+  @spec fetch_alerts(number(), number(), String.t(), keyword()) ::
+          {:ok, [map()]} | {:error, :no_alerts}
+  def fetch_alerts(_lat, _lon, _units, _opts \\ []), do: {:error, :no_alerts}
+
   defp best_effort_daily(_params, _opts, 0), do: %{}
 
   defp best_effort_daily(params, opts, attempts) do

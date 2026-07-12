@@ -88,6 +88,26 @@ defmodule FamilyDashboard.Weather.Xweather do
     end
   end
 
+  @doc """
+  Fetches active weather alerts for `lat`/`lon`. Returns `{:ok, :no_alerts}`
+  when the location has none.
+  """
+  @impl true
+  @spec fetch_alerts(number(), number(), String.t(), keyword()) ::
+          {:ok, [map()]} | {:error, :no_alerts}
+  def fetch_alerts(lat, lon, _units, opts \\ []) do
+    case get("/alerts/#{place(lat, lon)}", [], opts) do
+      {:ok, body} ->
+        case body["response"] || [] do
+          [] -> {:error, :no_alerts}
+          alerts -> {:ok, Enum.map(alerts, &normalize_alert/1)}
+        end
+
+      {:error, _} ->
+        {:error, :no_alerts}
+    end
+  end
+
   defp place(lat, lon), do: "#{lat},#{lon}"
 
   defp get(path, params, opts) do
@@ -194,6 +214,46 @@ defmodule FamilyDashboard.Weather.Xweather do
       }
     end)
   end
+
+  defp normalize_alert(alert) do
+    details = alert["details"] || %{}
+    timestamps = alert["timestamps"] || %{}
+
+    %{
+      alert_type: details["type"],
+      severity: alert_severity(details["type"]),
+      priority: details["priority"],
+      category: details["cat"],
+      name: details["name"],
+      body: details["body"],
+      color: details["color"],
+      emergency: details["emergency"] || false,
+      begins_at: parse_timestamp(timestamps["begins"]),
+      expires_at: parse_timestamp(timestamps["expires"]),
+      issued_at: parse_timestamp(timestamps["issued"])
+    }
+  end
+
+  # Xweather's alert `type` code is a dot-separated string whose final segment
+  # is a severity abbreviation (EX/SV/MD/MN) — see
+  # https://www.xweather.com/docs/weather-api/endpoints/alerts. Normalized to
+  # the closed set documented in FamilyDashboard.Weather.Provider so filter
+  # config never depends on the raw provider code. Falls back to "minor"
+  # (the least alarming tier) rather than crashing on an unrecognized code,
+  # since `severity` is a required (`allow_nil? false`) attribute.
+  defp alert_severity(nil), do: "minor"
+
+  defp alert_severity(type) when is_binary(type) do
+    case type |> String.split(".") |> List.last() do
+      "EX" -> "extreme"
+      "SV" -> "severe"
+      "MD" -> "moderate"
+      "MN" -> "minor"
+      _ -> "minor"
+    end
+  end
+
+  defp alert_severity(_), do: "minor"
 
   defp place_label(%{"name" => name, "state" => state, "country" => "us"})
        when is_binary(name) and is_binary(state) do

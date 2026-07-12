@@ -266,4 +266,10 @@ defmodule FamilyDashboard.Weather.OpenWeatherTest do
       assert day.icon == "snow"
     end
   end
+
+  describe "fetch_alerts/4" do
+    test "always returns {:error, :no_alerts} (not implemented for this provider)" do
+      assert {:error, :no_alerts} = OpenWeather.fetch_alerts(41.88, -87.63, "imperial", [])
+    end
+  end
 end
