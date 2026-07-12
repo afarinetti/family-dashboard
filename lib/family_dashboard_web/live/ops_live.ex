@@ -22,9 +22,10 @@ defmodule FamilyDashboardWeb.OpsLive do
       if connected?(socket) do
         Phoenix.PubSub.subscribe(FamilyDashboard.PubSub, "weather")
         Phoenix.PubSub.subscribe(FamilyDashboard.PubSub, "events")
+        Phoenix.PubSub.subscribe(FamilyDashboard.PubSub, "news")
         reload_status(socket)
       else
-        assign(socket, calendars: [], setting: nil)
+        assign(socket, calendars: [], news_feeds: [], setting: nil)
       end
 
     socket =
@@ -38,10 +39,15 @@ defmodule FamilyDashboardWeb.OpsLive do
   @impl true
   def handle_info(:weather_updated, socket), do: {:noreply, reload_status(socket)}
   def handle_info(:events_updated, socket), do: {:noreply, reload_status(socket)}
+  def handle_info(:news_updated, socket), do: {:noreply, reload_status(socket)}
   def handle_info(:reload_status, socket), do: {:noreply, reload_status(socket)}
 
   defp reload_status(socket) do
-    assign(socket, calendars: Dashboard.list_calendars!(), setting: current_setting())
+    assign(socket,
+      calendars: Dashboard.list_calendars!(),
+      news_feeds: Dashboard.list_news_feeds!(),
+      setting: current_setting()
+    )
   end
 
   defp current_setting do
@@ -74,6 +80,35 @@ defmodule FamilyDashboardWeb.OpsLive do
               <.button phx-click="refresh_weather">Refresh weather now</.button>
               <.button phx-click="refresh_daily">Refresh 7-day now</.button>
             </div>
+          </div>
+        </section>
+
+        <section class="card bg-base-100 shadow-sm">
+          <div class="card-body">
+            <div class="flex items-center justify-between">
+              <h2 class="card-title">News</h2>
+              <.button phx-click="refresh_news">Refresh news now</.button>
+            </div>
+            <ul class="list">
+              <li :for={feed <- @news_feeds} class="list-row">
+                <div class="list-col-grow">
+                  <div class="font-bold">
+                    {feed.label}
+                    <span class={[
+                      "badge badge-sm",
+                      feed.enabled && "badge-success",
+                      !feed.enabled && "badge-ghost"
+                    ]}>
+                      {if feed.enabled, do: "enabled", else: "disabled"}
+                    </span>
+                  </div>
+                  <div class="text-sm text-base-content/70">
+                    fetched {relative_time(feed.last_fetched_at)}
+                  </div>
+                  <div :if={feed.last_error} class="text-sm text-error">{feed.last_error}</div>
+                </div>
+              </li>
+            </ul>
           </div>
         </section>
 
@@ -155,6 +190,12 @@ defmodule FamilyDashboardWeb.OpsLive do
     Heartbeat.enqueue_weather(true)
     schedule_status_reload()
     {:noreply, put_flash(socket, :info, "Weather refresh queued.")}
+  end
+
+  def handle_event("refresh_news", _params, socket) do
+    Heartbeat.enqueue_news(true)
+    schedule_status_reload()
+    {:noreply, put_flash(socket, :info, "News refresh queued.")}
   end
 
   def handle_event("refresh_daily", _params, socket) do

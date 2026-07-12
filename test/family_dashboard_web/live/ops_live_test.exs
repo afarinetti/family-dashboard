@@ -6,7 +6,7 @@ defmodule FamilyDashboardWeb.OpsLiveTest do
 
   alias FamilyDashboard.Backup
   alias FamilyDashboard.Dashboard
-  alias FamilyDashboard.Workers.{CalendarSync, WeatherDailyRefresh, WeatherRefresh}
+  alias FamilyDashboard.Workers.{CalendarSync, NewsRefresh, WeatherDailyRefresh, WeatherRefresh}
 
   @auth Plug.BasicAuth.encode_basic_auth("family", "family-dashboard")
 
@@ -31,6 +31,15 @@ defmodule FamilyDashboardWeb.OpsLiveTest do
 
     assert html =~ "Family"
     assert html =~ "synced never"
+  end
+
+  test "lists a news feed with its fetch status", %{conn: conn} do
+    Dashboard.create_news_feed!(%{url: "https://example.com/rss.xml", label: "Example Feed"})
+
+    {:ok, _live, html} = conn |> authed() |> live(~p"/ops")
+
+    assert html =~ "Example Feed"
+    assert html =~ "fetched never"
   end
 
   test "shows a calendar's last_error in red", %{conn: conn} do
@@ -68,6 +77,14 @@ defmodule FamilyDashboardWeb.OpsLiveTest do
       render_click(live, "refresh_daily")
 
       assert_enqueued(worker: WeatherDailyRefresh)
+    end
+
+    test "refresh_news enqueues NewsRefresh", %{conn: conn} do
+      {:ok, live, _html} = conn |> authed() |> live(~p"/ops")
+
+      render_click(live, "refresh_news")
+
+      assert_enqueued(worker: NewsRefresh)
     end
 
     test "sync_calendar enqueues CalendarSync for the matching id", %{conn: conn} do
