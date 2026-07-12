@@ -8,6 +8,8 @@ defmodule FamilyDashboard.News do
   caller.
   """
 
+  alias FamilyDashboard.Dashboard
+
   @months %{
     "Jan" => 1,
     "Feb" => 2,
@@ -108,5 +110,57 @@ defmodule FamilyDashboard.News do
 
     shifted = NaiveDateTime.add(naive, -offset, :second)
     DateTime.new!(NaiveDateTime.to_date(shifted), NaiveDateTime.to_time(shifted), "Etc/UTC")
+  end
+
+  @doc """
+  Fetches every enabled feed, each independently and best-effort, and upserts
+  its items. A feed that fails to fetch keeps its existing items and records
+  `last_error` — unlike `Sync.sync_calendar/2`, this never prunes; old items
+  are removed only by `FamilyDashboard.NewsReaper`, on its own schedule.
+  Always stamps `Setting.news_last_attempted_at`, regardless of per-feed
+  outcome, so `Heartbeat` doesn't re-enqueue every minute.
+  """
+  @spec refresh_all(keyword()) :: :ok
+  def refresh_all(opts \\ []) do
+    record_attempt()
+
+    Dashboard.list_news_feeds!()
+    |> Enum.filter(& &1.enabled)
+    |> Enum.each(&refresh_feed(&1, opts))
+
+    broadcast("news", :news_updated)
+    :ok
+  end
+
+  defp refresh_feed(feed, opts) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    case fetch_items(feed.url, opts) do
+      {:ok, items} ->
+        Enum.each(items, fn item ->
+          Dashboard.create_news_item!(Map.put(item, :news_feed_id, feed.id))
+        end)
+
+        Dashboard.update_news_feed!(feed, %{last_fetched_at: now, last_error: nil})
+
+      {:error, reason} ->
+        Dashboard.update_news_feed!(feed, %{last_error: inspect(reason)})
+    end
+  end
+
+  defp record_attempt do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    case Dashboard.current_setting() do
+      {:ok, %{} = setting} ->
+        Dashboard.record_news_attempt!(setting, %{news_last_attempted_at: now})
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp broadcast(topic, message) do
+    Phoenix.PubSub.broadcast(FamilyDashboard.PubSub, topic, message)
   end
 end

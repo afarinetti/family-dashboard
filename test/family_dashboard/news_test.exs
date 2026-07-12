@@ -182,3 +182,116 @@ defmodule FamilyDashboard.NewsTest do
     end
   end
 end
+
+defmodule FamilyDashboard.News.RefreshAllTest do
+  use FamilyDashboard.DataCase
+
+  alias FamilyDashboard.{Dashboard, News}
+
+  defp rss(items_xml) do
+    """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0">
+      <channel>
+        <title>Feed</title>
+        #{items_xml}
+      </channel>
+    </rss>
+    """
+  end
+
+  test "fetches enabled feeds and persists their items" do
+    feed = Dashboard.create_news_feed!(%{url: "https://feed.example/rss.xml", label: "Example"})
+
+    xml =
+      rss("""
+      <item>
+        <title>Council approves new park</title>
+        <link>https://example.com/park</link>
+        <guid>park-1</guid>
+      </item>
+      """)
+
+    plug = fn conn -> Req.Test.text(conn, xml) end
+
+    assert :ok = News.refresh_all(plug: plug)
+
+    assert [item] = Dashboard.list_news_items!()
+    assert item.title == "Council approves new park"
+    assert item.news_feed_id == feed.id
+
+    reloaded_feed = Dashboard.get_news_feed!(feed.id)
+    assert reloaded_feed.last_fetched_at
+    assert is_nil(reloaded_feed.last_error)
+  end
+
+  test "skips a disabled feed" do
+    Dashboard.create_news_feed!(%{
+      url: "https://feed.example/rss.xml",
+      label: "Off",
+      enabled: false
+    })
+
+    plug = fn conn -> Req.Test.text(conn, rss("")) end
+
+    assert :ok = News.refresh_all(plug: plug)
+    assert Dashboard.list_news_items!() == []
+  end
+
+  test "one feed failing does not block another, and keeps the failed feed's existing items" do
+    good = Dashboard.create_news_feed!(%{url: "https://feed.example/good.xml", label: "Good"})
+    bad = Dashboard.create_news_feed!(%{url: "https://feed.example/bad.xml", label: "Bad"})
+
+    Dashboard.create_news_item!(%{
+      news_feed_id: bad.id,
+      guid: "old-item",
+      title: "Old headline",
+      url: "https://feed.example/old"
+    })
+
+    plug = fn conn ->
+      cond do
+        String.ends_with?(conn.request_path, "/good.xml") ->
+          Req.Test.text(
+            conn,
+            rss("""
+            <item>
+              <title>New headline</title>
+              <link>https://feed.example/new</link>
+              <guid>new-item</guid>
+            </item>
+            """)
+          )
+
+        String.ends_with?(conn.request_path, "/bad.xml") ->
+          Plug.Conn.send_resp(conn, 500, "boom")
+      end
+    end
+
+    assert :ok = News.refresh_all(plug: plug)
+
+    titles = Dashboard.list_news_items!() |> Enum.map(& &1.title) |> Enum.sort()
+    assert titles == ["New headline", "Old headline"]
+
+    reloaded_bad = Dashboard.get_news_feed!(bad.id)
+    assert reloaded_bad.last_error
+  end
+
+  test "broadcasts :news_updated after a refresh cycle" do
+    Dashboard.create_news_feed!(%{url: "https://feed.example/rss.xml", label: "Example"})
+    Phoenix.PubSub.subscribe(FamilyDashboard.PubSub, "news")
+
+    plug = fn conn -> Req.Test.text(conn, rss("")) end
+    assert :ok = News.refresh_all(plug: plug)
+
+    assert_receive :news_updated
+  end
+
+  test "stamps news_last_attempted_at on the setting" do
+    plug = fn conn -> Req.Test.text(conn, rss("")) end
+    assert :ok = News.refresh_all(plug: plug)
+
+    {:ok, setting} = Dashboard.current_setting()
+    assert setting.news_last_attempted_at
+  end
+end
