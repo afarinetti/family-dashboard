@@ -47,7 +47,10 @@ defmodule FamilyDashboard.Setting do
       :calendar_sync_minutes,
       :weather_refresh_minutes,
       :daily_refresh_minutes,
-      :sync_max_attempts
+      :sync_max_attempts,
+      :alerts_min_severity,
+      :alerts_hidden_categories,
+      :alerts_show_body
     ]
 
     defaults [:read, create: @writable]
@@ -69,6 +72,7 @@ defmodule FamilyDashboard.Setting do
 
   validations do
     validate {FamilyDashboard.Validations.ValidTimeZone, []}
+    validate {FamilyDashboard.Validations.ValidSeverity, []}
   end
 
   attributes do
@@ -144,6 +148,36 @@ defmodule FamilyDashboard.Setting do
 
     attribute :greeting, :string do
       public? true
+    end
+
+    # Minimum severity (of "extreme" | "severe" | "moderate" | "minor" — see
+    # FamilyDashboard.Weather.Provider) an alert must meet to render on the
+    # dashboard's Weather Alerts card. Validated by
+    # FamilyDashboard.Validations.ValidSeverity.
+    attribute :alerts_min_severity, :string do
+      public? true
+      allow_nil? false
+      default "moderate"
+    end
+
+    # Comma-delimited alert `category` tokens (e.g. "small craft advisory,air
+    # quality") to hide regardless of severity. Empty string means show every
+    # category. A plain delimited string (not an Ash array type) so it stays
+    # consistent with every other scalar setting on this resource and is
+    # guaranteed-editable as a plain text field in ash_admin. Parsed in
+    # DashboardLive.
+    attribute :alerts_hidden_categories, :string do
+      public? true
+      allow_nil? false
+      default ""
+    end
+
+    # Whether the Weather Alerts card shows each alert's body text beneath its
+    # name, or just the compact name + active-until time.
+    attribute :alerts_show_body, :boolean do
+      public? true
+      allow_nil? false
+      default false
     end
 
     timestamps()
