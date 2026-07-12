@@ -187,4 +187,36 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     # Must render "All day", not a phantom 7:00 PM from shifting UTC midnight.
     assert html =~ "All day"
   end
+
+  test "labels today's forecast as 'Today' in a negative-offset zone", %{conn: conn} do
+    {:ok, setting} = Dashboard.current_setting()
+    Dashboard.update_setting!(setting, %{time_zone: "America/Chicago"})
+
+    # OWM's daily `dt` is always midnight UTC of the calendar day (verified against
+    # the live API), not an instant in the location's local time. Shifting it into a
+    # negative-UTC-offset zone before taking its date rolls it back to yesterday.
+    #
+    # Anchored to Chicago's *local* today (not Date.utc_today()) so this isn't flaky
+    # for ~5 hours a day (19:00-24:00 Chicago), when the UTC date is already a day
+    # ahead of the Chicago date.
+    chicago_today = DateTime.now!("America/Chicago") |> DateTime.to_date()
+    today_utc_midnight = DateTime.new!(chicago_today, ~T[00:00:00], "Etc/UTC")
+
+    reading =
+      Dashboard.record_weather!(%{
+        observed_at: DateTime.utc_now() |> DateTime.truncate(:second),
+        temp: 70.0
+      })
+
+    Dashboard.create_weather_daily!(%{
+      weather_reading_id: reading.id,
+      forecast_date: today_utc_midnight,
+      high: 80.0,
+      low: 60.0
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    assert html =~ ~s(class="text-lg font-semibold">Today<)
+  end
 end

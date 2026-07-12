@@ -495,7 +495,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
                   :for={day <- @weather.daily}
                   class="grid grid-cols-[3.5rem_2.125rem_2.375rem_1fr_2.375rem_2.625rem] items-center gap-2 min-h-[2rem]"
                 >
-                  <span class="text-lg font-semibold">{day_short_label(day.forecast_date, @tz, @today)}</span>
+                  <span class="text-lg font-semibold">{day_short_label(day.forecast_date, @today)}</span>
                   <span class="text-2xl text-center">{weather_emoji(day.icon)}</span>
                   <span class="text-lg text-base-content/70 text-right tabular-nums">{round_temp(
                     day.low
@@ -718,10 +718,14 @@ defmodule FamilyDashboardWeb.DashboardLive do
     dt |> DateTime.shift_zone!(tz) |> Calendar.strftime("%p")
   end
 
-  defp day_short_label(nil, _tz, _today), do: ""
+  defp day_short_label(nil, _today), do: ""
 
-  defp day_short_label(dt, tz, today) do
-    date = dt |> DateTime.shift_zone!(tz) |> DateTime.to_date()
+  # OWM's daily `dt` is always midnight UTC of the calendar day it forecasts (verified
+  # against the live API across many locations/timezones) — a date, not a real instant.
+  # Shifting it into the display timezone before reading its date would roll it back a
+  # full day for any negative-UTC-offset zone, so it's read directly in UTC.
+  defp day_short_label(dt, today) do
+    date = DateTime.to_date(dt)
     if date == today, do: "Today", else: Calendar.strftime(date, "%a")
   end
 
