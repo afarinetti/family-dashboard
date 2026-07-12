@@ -54,6 +54,7 @@ defmodule FamilyDashboard.MixProject do
       {:ash_phoenix, "~> 2.0"},
       {:ash, "~> 3.0"},
       {:ical, "~> 3.0"},
+      {:fiet, "~> 0.3.0"},
       {:tz, "~> 0.28"},
       {:dotenvy, "~> 1.1"},
       {:igniter, "~> 0.6", only: [:dev, :test]},
