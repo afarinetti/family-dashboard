@@ -2,6 +2,10 @@ import Config
 config :family_dashboard, Oban, testing: :manual
 config :ash, policies: [show_policy_breakdowns?: true], disable_async?: true
 
+# Pinned regardless of the developer's shell environment, so the suite is
+# deterministic — tests that need the other provider set it explicitly.
+config :family_dashboard, :weather_provider, FamilyDashboard.Weather.Xweather
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used

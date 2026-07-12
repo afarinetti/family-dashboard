@@ -737,23 +737,29 @@ defmodule FamilyDashboardWeb.DashboardLive do
 
   defp pop_pct(_), do: nil
 
-  # Map an OpenWeatherMap icon code to a simple emoji (offline-friendly, no image
-  # fetch). A placeholder for a missing icon (daily entries can omit it) — distinct
-  # from the unrecognized-code fallback below, since "no data" and "data we don't
-  # know how to draw" are different failure modes worth telling apart at a glance.
+  # Map a provider-neutral icon token (see FamilyDashboard.Weather.Provider) to a
+  # simple emoji (offline-friendly, no image fetch). A placeholder for a missing
+  # icon (daily entries can omit it) — distinct from the unrecognized-token
+  # fallback below, since "no data" and "data we don't know how to draw" are
+  # different failure modes worth telling apart at a glance. Keying on tokens
+  # rather than a provider's raw codes means this doesn't change when the
+  # weather provider does (see `config :family_dashboard, :weather_provider`).
   defp weather_emoji(nil), do: "❓"
 
   defp weather_emoji(icon) do
-    case String.slice(icon, 0, 2) do
-      "01" -> "☀️"
-      "02" -> "🌤️"
-      "03" -> "☁️"
-      "04" -> "☁️"
-      "09" -> "🌧️"
-      "10" -> "🌦️"
-      "11" -> "⛈️"
-      "13" -> "❄️"
-      "50" -> "🌫️"
+    case icon do
+      "clear" -> "☀️"
+      "partly_cloudy" -> "🌤️"
+      "cloudy" -> "☁️"
+      "rain" -> "🌧️"
+      "showers" -> "🌦️"
+      "thunderstorm" -> "⛈️"
+      "snow" -> "❄️"
+      "fog" -> "🌫️"
+      "tornado" -> "🌪️"
+      "hurricane" -> "🌀"
+      "blizzard" -> "🌨️"
+      "ice_storm" -> "🧊"
       _ -> "🌡️"
     end
   end

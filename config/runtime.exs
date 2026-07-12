@@ -44,8 +44,26 @@ end
 config :family_dashboard, FamilyDashboardWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
-# OpenWeatherMap API key (free tier). Weather simply stays empty if unset.
+# OpenWeatherMap API key (free tier) — kept as a fallback provider. Weather
+# simply stays empty if unset.
 config :family_dashboard, :openweather_api_key, System.get_env("WEATHER_API_KEY")
+
+# Xweather (https://www.xweather.com) client credentials — the default weather
+# provider. Weather simply stays empty if unset.
+config :family_dashboard, :xweather_client_id, System.get_env("XWEATHER_CLIENT_ID")
+config :family_dashboard, :xweather_client_secret, System.get_env("XWEATHER_CLIENT_SECRET")
+
+# Which FamilyDashboard.Weather.Provider adapter Sync dispatches to. Defaults to
+# Xweather — OpenWeatherMap's daily forecast reliably omits icon/condition data
+# (see FamilyDashboard.Weather.OpenWeather's moduledoc) — but WEATHER_PROVIDER=
+# openweather is available as a fallback without a code change.
+weather_provider =
+  case System.get_env("WEATHER_PROVIDER") do
+    "openweather" -> FamilyDashboard.Weather.OpenWeather
+    _ -> FamilyDashboard.Weather.Xweather
+  end
+
+config :family_dashboard, :weather_provider, weather_provider
 
 # Shared-password gate for the settings/admin area. Required in prod; defaulted
 # for local dev/test so the app runs out of the box.

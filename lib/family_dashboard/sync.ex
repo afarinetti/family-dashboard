@@ -60,8 +60,8 @@ defmodule FamilyDashboard.Sync do
         record_weather_status(setting, "No location configured")
         {:error, :no_location}
 
-      is_nil(api_key()) and opts == [] ->
-        record_weather_status(setting, "No API key configured (set WEATHER_API_KEY)")
+      not Weather.credentials_configured?() and opts == [] ->
+        record_weather_status(setting, "No weather API credentials configured")
         {:error, :no_api_key}
 
       true ->
@@ -135,7 +135,7 @@ defmodule FamilyDashboard.Sync do
     case Dashboard.current_setting() do
       {:ok, %{latitude: lat, longitude: lon} = setting}
       when not is_nil(lat) and not is_nil(lon) ->
-        if is_nil(api_key()) and opts == [] do
+        if not Weather.credentials_configured?() and opts == [] do
           {:error, :no_api_key}
         else
           record_daily_attempt(setting)
@@ -220,9 +220,11 @@ defmodule FamilyDashboard.Sync do
   defp humanize_weather_error({:http_status, status}),
     do: "Weather service returned HTTP #{status}"
 
-  defp humanize_weather_error(reason), do: "Weather fetch failed: #{inspect(reason)}"
+  defp humanize_weather_error({:api_error, %{"description" => description}})
+       when is_binary(description),
+       do: description
 
-  defp api_key, do: Application.get_env(:family_dashboard, :openweather_api_key)
+  defp humanize_weather_error(reason), do: "Weather fetch failed: #{inspect(reason)}"
 
   # Upsert the calendar's occurrences in the window, then prune whatever the
   # feed no longer returns (ended recurrences, cancelled/moved occurrences),

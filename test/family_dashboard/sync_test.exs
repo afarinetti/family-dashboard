@@ -229,44 +229,76 @@ defmodule FamilyDashboard.SyncTest do
   end
 
   describe "refresh_weather/1" do
+    # Xweather-shaped fixtures (the default provider, pinned in config/test.exs).
+    # Matched on path *prefix* + the "filter" query param rather than the exact
+    # lat/lon path segment, since the Setting singleton's coordinates aren't
+    # under this test's control (see `current_setting/0`).
     defp weather_plug do
       current = %{
-        "data" => [
+        "success" => true,
+        "response" => [
           %{
-            "dt" => 1_783_000_000,
-            "temp" => 70.0,
-            "feels_like" => 68.0,
-            "weather" => [%{"description" => "clear sky", "icon" => "01d"}]
+            "periods" => [
+              %{
+                "timestamp" => 1_783_000_000,
+                "tempF" => 70.0,
+                "feelslikeF" => 68.0,
+                "weather" => "clear sky",
+                "icon" => "clear.png"
+              }
+            ]
           }
         ]
       }
 
       hourly = %{
-        "data" => [
+        "success" => true,
+        "response" => [
           %{
-            "dt" => 1_783_000_000,
-            "temp" => 70.0,
-            "pop" => 0.0,
-            "weather" => [%{"icon" => "01d"}]
+            "periods" => [
+              %{
+                "timestamp" => 1_783_000_000,
+                "tempF" => 70.0,
+                "pop" => 0,
+                "weather" => "clear sky",
+                "icon" => "clear.png"
+              }
+            ]
           }
         ]
       }
 
       daily = %{
-        "data" => [
+        "success" => true,
+        "response" => [
           %{
-            "dt" => 1_783_000_000,
-            "temp" => %{"min" => 60.0, "max" => 80.0},
-            "weather" => [%{"icon" => "01d"}]
+            "periods" => [
+              %{
+                "timestamp" => 1_783_000_000,
+                "maxTempF" => 80.0,
+                "minTempF" => 60.0,
+                "weather" => "clear sky",
+                "icon" => "clear.png"
+              }
+            ]
           }
         ]
       }
 
       fn conn ->
-        case conn.request_path do
-          "/data/4.0/onecall/current" -> Req.Test.json(conn, current)
-          "/data/4.0/onecall/timeline/1h" -> Req.Test.json(conn, hourly)
-          "/data/4.0/onecall/timeline/1day" -> Req.Test.json(conn, daily)
+        conn = Plug.Conn.fetch_query_params(conn)
+
+        cond do
+          String.starts_with?(conn.request_path, "/conditions/") ->
+            Req.Test.json(conn, current)
+
+          String.starts_with?(conn.request_path, "/forecasts/") and
+              conn.query_params["filter"] == "1hr" ->
+            Req.Test.json(conn, hourly)
+
+          String.starts_with?(conn.request_path, "/forecasts/") and
+              conn.query_params["filter"] == "day" ->
+            Req.Test.json(conn, daily)
         end
       end
     end
@@ -320,46 +352,77 @@ defmodule FamilyDashboard.SyncTest do
 
     test "returns an error when the daily endpoint has no data" do
       assert :ok = Sync.refresh_weather(plug: weather_plug())
-      empty = fn conn -> Req.Test.json(conn, %{"data" => []}) end
+
+      empty = fn conn ->
+        Req.Test.json(conn, %{"success" => true, "response" => [%{"periods" => []}]})
+      end
 
       assert {:error, :no_daily} = Sync.refresh_daily(plug: empty)
     end
 
-    test "borrows today's icon/condition from the hourly forecast when the daily endpoint's weather is null" do
-      # Mirrors production: OWM's /timeline/1day reliably returns "weather": null
-      # for every day on this account, while /current and /timeline/1h return it.
+    test "borrows today's icon/condition from the hourly forecast when the daily endpoint's icon is missing" do
+      # This is a defense-in-depth safety net, not the common case: Xweather's
+      # /forecasts (unlike OWM's /timeline/1day) reliably returns real daily
+      # icons/conditions. But should a provider ever omit today's, borrow it
+      # from the hourly forecast rather than showing a blank icon.
       current = %{
-        "data" => [
+        "success" => true,
+        "response" => [
           %{
-            "dt" => 1_783_000_000,
-            "temp" => 70.0,
-            "weather" => [%{"description" => "light rain", "icon" => "10d"}]
+            "periods" => [
+              %{
+                "timestamp" => 1_783_000_000,
+                "tempF" => 70.0,
+                "weather" => "rain showers",
+                "icon" => "shwrs.png"
+              }
+            ]
           }
         ]
       }
 
       hourly = %{
-        "data" => [
+        "success" => true,
+        "response" => [
           %{
-            "dt" => 1_783_000_000,
-            "temp" => 70.0,
-            "pop" => 0.0,
-            "weather" => [%{"description" => "light rain", "icon" => "10d"}]
+            "periods" => [
+              %{
+                "timestamp" => 1_783_000_000,
+                "tempF" => 70.0,
+                "pop" => 0,
+                "weather" => "rain showers",
+                "icon" => "shwrs.png"
+              }
+            ]
           }
         ]
       }
 
-      daily_no_weather = %{
-        "data" => [
-          %{"dt" => 1_783_000_000, "temp" => %{"min" => 60.0, "max" => 80.0}, "weather" => nil}
+      daily_no_icon = %{
+        "success" => true,
+        "response" => [
+          %{
+            "periods" => [
+              %{"timestamp" => 1_783_000_000, "maxTempF" => 80.0, "minTempF" => 60.0}
+            ]
+          }
         ]
       }
 
       plug = fn conn ->
-        case conn.request_path do
-          "/data/4.0/onecall/current" -> Req.Test.json(conn, current)
-          "/data/4.0/onecall/timeline/1h" -> Req.Test.json(conn, hourly)
-          "/data/4.0/onecall/timeline/1day" -> Req.Test.json(conn, daily_no_weather)
+        conn = Plug.Conn.fetch_query_params(conn)
+
+        cond do
+          String.starts_with?(conn.request_path, "/conditions/") ->
+            Req.Test.json(conn, current)
+
+          String.starts_with?(conn.request_path, "/forecasts/") and
+              conn.query_params["filter"] == "1hr" ->
+            Req.Test.json(conn, hourly)
+
+          String.starts_with?(conn.request_path, "/forecasts/") and
+              conn.query_params["filter"] == "day" ->
+            Req.Test.json(conn, daily_no_icon)
         end
       end
 
@@ -367,8 +430,8 @@ defmodule FamilyDashboard.SyncTest do
       assert :ok = Sync.refresh_daily(plug: plug)
 
       today = Dashboard.latest_weather!().daily |> List.first()
-      assert today.icon == "10d"
-      assert today.condition == "light rain"
+      assert today.icon == "showers"
+      assert today.condition == "rain showers"
     end
 
     test "records a human-readable weather_last_error on a fetch failure" do
