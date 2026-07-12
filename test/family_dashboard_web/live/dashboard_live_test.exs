@@ -166,6 +166,112 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     assert html =~ "Invalid or inactive API key"
   end
 
+  test "does not render a News card", %{conn: conn} do
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    refute html =~ "News"
+  end
+
+  test "shows the alerts card for an active alert that meets the default severity threshold", %{
+    conn: conn
+  } do
+    reading =
+      Dashboard.record_weather!(%{
+        observed_at: DateTime.utc_now() |> DateTime.truncate(:second),
+        temp: 70.0
+      })
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Dashboard.create_weather_alert!(%{
+      weather_reading_id: reading.id,
+      severity: "severe",
+      name: "Severe Thunderstorm Warning",
+      begins_at: DateTime.add(now, -600, :second),
+      expires_at: DateTime.add(now, 3600, :second)
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    assert html =~ "Weather Alerts"
+    assert html =~ "Severe Thunderstorm Warning"
+  end
+
+  test "hides the alerts card when the alert is below the configured severity threshold", %{
+    conn: conn
+  } do
+    {:ok, setting} = Dashboard.current_setting()
+    Dashboard.update_setting!(setting, %{alerts_min_severity: "severe"})
+
+    reading =
+      Dashboard.record_weather!(%{
+        observed_at: DateTime.utc_now() |> DateTime.truncate(:second),
+        temp: 70.0
+      })
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Dashboard.create_weather_alert!(%{
+      weather_reading_id: reading.id,
+      severity: "moderate",
+      name: "Frost Advisory",
+      begins_at: DateTime.add(now, -600, :second),
+      expires_at: DateTime.add(now, 3600, :second)
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    refute html =~ "Frost Advisory"
+  end
+
+  test "hides the alerts card once the alert has expired", %{conn: conn} do
+    reading =
+      Dashboard.record_weather!(%{
+        observed_at: DateTime.utc_now() |> DateTime.truncate(:second),
+        temp: 70.0
+      })
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Dashboard.create_weather_alert!(%{
+      weather_reading_id: reading.id,
+      severity: "severe",
+      name: "Severe Thunderstorm Warning",
+      begins_at: DateTime.add(now, -7200, :second),
+      expires_at: DateTime.add(now, -3600, :second)
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    refute html =~ "Severe Thunderstorm Warning"
+  end
+
+  test "hides a hidden-category alert even when its severity meets the threshold", %{conn: conn} do
+    {:ok, setting} = Dashboard.current_setting()
+    Dashboard.update_setting!(setting, %{alerts_hidden_categories: "small craft advisory"})
+
+    reading =
+      Dashboard.record_weather!(%{
+        observed_at: DateTime.utc_now() |> DateTime.truncate(:second),
+        temp: 70.0
+      })
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Dashboard.create_weather_alert!(%{
+      weather_reading_id: reading.id,
+      severity: "severe",
+      category: "small craft advisory",
+      name: "Small Craft Advisory",
+      begins_at: DateTime.add(now, -600, :second),
+      expires_at: DateTime.add(now, 3600, :second)
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    refute html =~ "Small Craft Advisory"
+  end
+
   test "shows all-day events with an 'All day' label in a negative-offset zone", %{conn: conn} do
     {:ok, setting} = Dashboard.current_setting()
     Dashboard.update_setting!(setting, %{time_zone: "America/Chicago"})

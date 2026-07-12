@@ -269,7 +269,10 @@ defmodule FamilyDashboardWeb.DashboardLive do
     greeting: "Welcome home",
     city_label: nil,
     time_zone: "Etc/UTC",
-    weather_last_error: nil
+    weather_last_error: nil,
+    alerts_min_severity: "moderate",
+    alerts_hidden_categories: "",
+    alerts_show_body: false
   }
 
   @impl true
@@ -281,14 +284,21 @@ defmodule FamilyDashboardWeb.DashboardLive do
     end
 
     socket = assign(socket, :agenda_days, @agenda_days)
-    {:ok, socket |> assign_setting() |> assign_clock() |> load_weather() |> load_events()}
+
+    {:ok,
+     socket
+     |> assign_setting()
+     |> assign_clock()
+     |> load_weather()
+     |> assign_active_alerts()
+     |> load_events()}
   end
 
   @impl true
   def handle_info(:tick, socket) do
     Process.send_after(self(), :tick, @tick_ms)
     prev_today = socket.assigns.today
-    socket = assign_clock(socket)
+    socket = socket |> assign_clock() |> assign_active_alerts()
 
     # Reload the agenda when the local day rolls over.
     socket = if socket.assigns.today != prev_today, do: load_events(socket), else: socket
@@ -296,7 +306,10 @@ defmodule FamilyDashboardWeb.DashboardLive do
   end
 
   def handle_info(:events_updated, socket), do: {:noreply, load_events(socket)}
-  def handle_info(:weather_updated, socket), do: {:noreply, load_weather(socket)}
+
+  def handle_info(:weather_updated, socket) do
+    {:noreply, socket |> load_weather() |> assign_active_alerts()}
+  end
 
   defp assign_setting(socket) do
     setting =
@@ -330,6 +343,31 @@ defmodule FamilyDashboardWeb.DashboardLive do
       end
 
     assign(socket, :weather, weather)
+  end
+
+  # Recomputed on every weather update AND every 30s clock tick (not just on
+  # fetch), so an operator's filter edit or an alert's natural expiry both
+  # take effect within 30s instead of waiting for the next ~15-minute refresh.
+  defp assign_active_alerts(socket) do
+    %{weather: weather, setting: setting, now: now} = socket.assigns
+    alerts = if weather, do: weather.alerts, else: []
+
+    active =
+      Enum.filter(alerts, fn alert ->
+        severity_rank(alert.severity) >= severity_rank(setting.alerts_min_severity) and
+          alert.category not in hidden_categories(setting.alerts_hidden_categories) and
+          in_alert_window?(alert, now)
+      end)
+
+    assign(socket, :active_alerts, active)
+  end
+
+  defp hidden_categories(nil), do: []
+  defp hidden_categories(categories), do: String.split(categories, ",", trim: true)
+
+  defp in_alert_window?(%{begins_at: begins_at, expires_at: expires_at}, now) do
+    (is_nil(begins_at) or DateTime.compare(now, begins_at) != :lt) and
+      (is_nil(expires_at) or DateTime.compare(now, expires_at) != :gt)
   end
 
   defp load_events(socket) do
@@ -380,7 +418,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
     <Layouts.app flash={@flash}>
       <!-- Portrait wall display (1080w x 1920h): 40% left rail, 60% right column. -->
       <div class="h-screen w-screen overflow-hidden bg-base-200 p-3 flex flex-row gap-2.5">
-        <!-- Left rail (30%): clock/date, weather, news/alerts placeholders -->
+        <!-- Left rail (30%): clock/date, weather, weather alerts -->
         <div class="w-[40%] shrink-0 flex flex-col gap-3 overflow-hidden">
           <!-- Clock / greeting -->
           <section class="card card-sm bg-base-100 shadow-sm shrink-0">
@@ -519,19 +557,26 @@ defmodule FamilyDashboardWeb.DashboardLive do
             </div>
           </section>
 
-          <!-- News (placeholder, not yet wired to data) -->
-          <section class="card card-sm bg-base-100 shadow-sm shrink-0">
+          <!-- Weather Alerts -->
+          <section :if={@active_alerts != []} class="card card-sm bg-base-100 shadow-sm shrink-0">
             <div class="card-body">
-              <.card_title label="News" />
-              <p class="text-xs text-base-content/40">Coming soon.</p>
-            </div>
-          </section>
-
-          <!-- Weather Alerts (placeholder, not yet wired to data) -->
-          <section class="card card-sm bg-base-100 shadow-sm shrink-0">
-            <div class="card-body">
-              <.card_title label="Weather Alerts" />
-              <p class="text-xs text-base-content/40">Coming soon.</p>
+              <.card_title label="Weather Alerts">
+                <:subtitle>{length(@active_alerts)}</:subtitle>
+              </.card_title>
+              <div class="flex flex-col gap-2">
+                <div
+                  :for={alert <- @active_alerts}
+                  class={"alert #{severity_color(alert.severity)} flex-col items-start gap-0.5 py-2"}
+                >
+                  <div class="flex items-baseline justify-between gap-2 w-full">
+                    <span class="font-semibold">{alert.name}</span>
+                    <span class="text-sm opacity-80 shrink-0">{alert_until(alert.expires_at, @tz)}</span>
+                  </div>
+                  <p :if={@setting.alerts_show_body && alert.body} class="text-sm opacity-90">
+                    {truncate_body(alert.body)}
+                  </p>
+                </div>
+              </div>
             </div>
           </section>
         </div>
@@ -761,6 +806,49 @@ defmodule FamilyDashboardWeb.DashboardLive do
       "blizzard" -> "🌨️"
       "ice_storm" -> "🧊"
       _ -> "🌡️"
+    end
+  end
+
+  # --- weather alert helpers ---
+
+  # Ranks the normalized severity tokens (see FamilyDashboard.Weather.Provider)
+  # from least to most urgent, so the alerts_min_severity threshold can be
+  # compared numerically. An unrecognized value ranks below "minor" (0) rather
+  # than raising, so a value the UI doesn't understand yet is treated as
+  # "always below threshold" instead of crashing the always-on display.
+  defp severity_rank("minor"), do: 1
+  defp severity_rank("moderate"), do: 2
+  defp severity_rank("severe"), do: 3
+  defp severity_rank("extreme"), do: 4
+  defp severity_rank(_), do: 0
+
+  # A full literal daisyUI semantic class per severity tier — never built via
+  # string interpolation (e.g. "alert-#{token}"), since Tailwind's content
+  # scan only sees classes that appear as literal strings in source (the same
+  # constraint @color_shade_hex exists to work around for the agenda's
+  # calendar colors, solved here by pattern-matching hardcoded literals
+  # instead of an allowlist map, since daisyUI's semantic tokens are a small
+  # fixed set).
+  defp severity_color("extreme"), do: "alert-error"
+  defp severity_color("severe"), do: "alert-warning"
+  defp severity_color("moderate"), do: "alert-info"
+  defp severity_color(_), do: "alert-neutral"
+
+  defp alert_until(nil, _tz), do: nil
+
+  defp alert_until(expires_at, tz) do
+    "until " <> (expires_at |> DateTime.shift_zone!(tz) |> Calendar.strftime("%-I:%M %p"))
+  end
+
+  @alert_body_limit 120
+
+  defp truncate_body(nil), do: nil
+
+  defp truncate_body(body) do
+    if String.length(body) > @alert_body_limit do
+      String.slice(body, 0, @alert_body_limit) <> "…"
+    else
+      body
     end
   end
 end
