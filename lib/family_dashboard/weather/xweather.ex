@@ -166,7 +166,7 @@ defmodule FamilyDashboard.Weather.Xweather do
         forecast_time: parse_timestamp(period["timestamp"]),
         temp: period[temp_field(units)],
         feels_like: period[feelslike_field(units)],
-        pop: period["pop"],
+        pop: pop_fraction(period["pop"]),
         humidity: round_int(period["humidity"]),
         wind_speed: period[wind_speed_field(units)],
         icon: icon(period["weather"]),
@@ -183,7 +183,7 @@ defmodule FamilyDashboard.Weather.Xweather do
         forecast_date: parse_timestamp(period["timestamp"]),
         high: period[max_temp_field(units)],
         low: period[min_temp_field(units)],
-        pop: period["pop"],
+        pop: pop_fraction(period["pop"]),
         summary: period["weather"],
         humidity: round_int(period["humidity"]),
         wind_speed: period[wind_speed_field(units)],
@@ -324,6 +324,14 @@ defmodule FamilyDashboard.Weather.Xweather do
   end
 
   defp parse_iso(_), do: nil
+
+  # Xweather's `pop` is already a 0-100 percentage; OWM's is a 0.0-1.0 fraction,
+  # and the shared render code (dashboard_live.ex's pop_pct/1) multiplies by
+  # 100 assuming that fraction convention — passing Xweather's value through
+  # unconverted displayed e.g. 79% as 7900%. Normalize to the same fraction
+  # OWM uses so the two providers agree on what `pop` means.
+  defp pop_fraction(nil), do: nil
+  defp pop_fraction(pct) when is_number(pct), do: pct / 100
 
   # Several of Xweather's fields (visibility in particular, e.g. "9.942" mi)
   # come back as floats where the corresponding resource attribute is an

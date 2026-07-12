@@ -34,6 +34,12 @@ defmodule FamilyDashboard.Weather.Provider do
   (normalized token), `:condition` — or `{:error, :no_daily}` if the provider
   has nothing for this location.
 
+  `:pop` (in both shapes above) is a **0.0-1.0 fraction**, not a 0-100
+  percentage — the render layer (`dashboard_live.ex`'s `pop_pct/1`) multiplies
+  by 100 itself. A provider whose native API reports pop as a percentage (e.g.
+  Xweather) must divide by 100 before returning it, or every value renders 100x
+  too large.
+
   ## Icon tokens
 
   `:icon` values are one of the provider-neutral strings below (or `nil`),

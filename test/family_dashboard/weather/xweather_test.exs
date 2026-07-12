@@ -155,6 +155,32 @@ defmodule FamilyDashboard.Weather.XweatherTest do
       assert %DateTime{} = first.forecast_time
     end
 
+    test "converts pop from Xweather's 0-100 percentage to the shared 0.0-1.0 fraction" do
+      # Regression: Xweather reports pop as a percentage (e.g. 79 for "79%"),
+      # but the render layer multiplies by 100 assuming OWM's 0.0-1.0 fraction
+      # convention — passed through unconverted, 79% rendered as "7900%".
+      plug = fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+
+        case {conn.request_path, conn.query_params["filter"]} do
+          {"/conditions/41.88,-87.63", _} ->
+            Req.Test.json(conn, %{
+              "success" => true,
+              "response" => [%{"periods" => [%{"timestamp" => 1_783_000_000}]}]
+            })
+
+          {"/forecasts/41.88,-87.63", "1hr"} ->
+            Req.Test.json(conn, %{
+              "success" => true,
+              "response" => [%{"periods" => [%{"timestamp" => 1_783_000_000, "pop" => 79}]}]
+            })
+        end
+      end
+
+      assert {:ok, r} = Xweather.fetch_current_and_hourly(41.88, -87.63, "imperial", plug: plug)
+      assert List.first(r.hourly).pop == 0.79
+    end
+
     test "current conditions still return when the hourly call fails (best-effort)" do
       plug = fn conn ->
         conn = Plug.Conn.fetch_query_params(conn)
