@@ -170,6 +170,7 @@ defmodule FamilyDashboard.Setting do
       public? true
       allow_nil? false
       default ""
+      constraints allow_empty?: true
     end
 
     # Whether the Weather Alerts card shows each alert's body text beneath its
