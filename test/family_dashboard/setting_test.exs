@@ -53,4 +53,32 @@ defmodule FamilyDashboard.SettingTest do
       assert updated.alerts_show_body == true
     end
   end
+
+  describe "news scheduling settings" do
+    test "default to a 15 minute refresh and 24 hour retention" do
+      assert setting().news_refresh_minutes == 15
+      assert setting().news_retention_hours == 24
+      assert setting().news_last_attempted_at == nil
+    end
+
+    test "news_refresh_minutes and news_retention_hours are writable" do
+      assert {:ok, updated} =
+               Dashboard.update_setting(setting(), %{
+                 news_refresh_minutes: 30,
+                 news_retention_hours: 12
+               })
+
+      assert updated.news_refresh_minutes == 30
+      assert updated.news_retention_hours == 12
+    end
+
+    test "record_news_attempt stamps news_last_attempted_at" do
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      assert {:ok, updated} =
+               Dashboard.record_news_attempt(setting(), %{news_last_attempted_at: now})
+
+      assert updated.news_last_attempted_at == now
+    end
+  end
 end

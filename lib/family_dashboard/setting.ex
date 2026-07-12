@@ -50,7 +50,9 @@ defmodule FamilyDashboard.Setting do
       :sync_max_attempts,
       :alerts_min_severity,
       :alerts_hidden_categories,
-      :alerts_show_body
+      :alerts_show_body,
+      :news_refresh_minutes,
+      :news_retention_hours
     ]
 
     defaults [:read, create: @writable]
@@ -67,6 +69,15 @@ defmodule FamilyDashboard.Setting do
     update :record_weather_status do
       require_atomic? false
       accept [:weather_last_error, :weather_last_attempted_at, :daily_last_attempted_at]
+    end
+
+    # System-set news fetch-attempt timestamp (not user-editable). Heartbeat
+    # gates the next refresh on this, exactly like weather_last_attempted_at —
+    # a single Oban worker refreshes every enabled feed together, so there's
+    # one global cadence rather than a per-feed one.
+    update :record_news_attempt do
+      require_atomic? false
+      accept [:news_last_attempted_at]
     end
   end
 
@@ -179,6 +190,33 @@ defmodule FamilyDashboard.Setting do
       public? true
       allow_nil? false
       default false
+    end
+
+    # Scheduling knob for the news ticker's Oban refresh, mirroring
+    # weather_refresh_minutes. A single worker refreshes every enabled
+    # NewsFeed on this cadence (see FamilyDashboard.News.refresh_all/1).
+    attribute :news_refresh_minutes, :integer do
+      public? true
+      allow_nil? false
+      default 15
+      constraints min: 1
+    end
+
+    # How long a NewsItem is kept once its effective_time (published_at,
+    # falling back to inserted_at) falls outside this window — see
+    # FamilyDashboard.NewsReaper.
+    attribute :news_retention_hours, :integer do
+      public? true
+      allow_nil? false
+      default 24
+      constraints min: 1
+    end
+
+    # Set on every news refresh attempt (regardless of per-feed success or
+    # failure) by FamilyDashboard.News.refresh_all/1. Not in @writable —
+    # system-set only.
+    attribute :news_last_attempted_at, :utc_datetime do
+      public? true
     end
 
     timestamps()

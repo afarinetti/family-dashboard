@@ -48,6 +48,7 @@ defmodule FamilyDashboard.Dashboard do
       define :create_setting, action: :create
       define :update_setting, action: :update
       define :record_weather_status, action: :record_weather_status
+      define :record_news_attempt, action: :record_news_attempt
     end
 
     resource FamilyDashboard.NewsFeed do
