@@ -19,6 +19,12 @@ defmodule FamilyDashboard.NewsItem do
   sqlite do
     table "news_items"
     repo FamilyDashboard.Repo
+
+    references do
+      # Deleting a NewsFeed (e.g. from ash_admin) should take its items with
+      # it, rather than failing on the FK constraint or leaving orphans.
+      reference :news_feed, on_delete: :delete
+    end
   end
 
   actions do
