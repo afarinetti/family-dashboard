@@ -285,8 +285,6 @@ defmodule FamilyDashboardWeb.DashboardLive do
       Process.send_after(self(), :tick, @tick_ms)
     end
 
-    socket = assign(socket, :agenda_days, @agenda_days)
-
     {:ok,
      socket
      |> assign_setting()
@@ -391,17 +389,31 @@ defmodule FamilyDashboardWeb.DashboardLive do
     from = DateTime.new!(Date.add(today, -1), ~T[00:00:00], "Etc/UTC")
     to = DateTime.new!(Date.add(last, 1), ~T[23:59:59], "Etc/UTC")
 
-    grouped =
+    events_by_date =
       from
       |> Dashboard.events_in_window!(to)
       |> Enum.group_by(&event_date(&1, tz))
-      |> Enum.filter(fn {date, _} ->
-        Date.compare(date, today) != :lt and Date.compare(date, last) != :gt
-      end)
-      |> Enum.sort_by(fn {date, _} -> date end, Date)
+
+    now = socket.assigns.now
+
+    # Every day in [today, last] appears, even with zero events (the
+    # template shows a "No events" placeholder) — previously only days with
+    # at least one event were included.
+    grouped =
+      for date <- Date.range(today, last) do
+        {date, events_by_date |> Map.get(date, []) |> reject_past(date, today, now)}
+      end
 
     assign(socket, :events_by_day, grouped)
   end
+
+  # Past events are hidden entirely rather than dimmed, but only on Today —
+  # event_past?/2 restricted to today keeps the effect from bleeding into
+  # future days (a future day's events are never "past").
+  defp reject_past(events, date, today, now) when date == today,
+    do: Enum.reject(events, &event_past?(&1, now))
+
+  defp reject_past(events, _date, _today, _now), do: events
 
   defp load_news_items(socket) do
     items =
@@ -640,23 +652,22 @@ defmodule FamilyDashboardWeb.DashboardLive do
             <section class="flex-1 min-h-0 card bg-base-100 shadow-sm">
               <div class="card-body min-h-0 overflow-hidden">
                 <h2 class="text-2xl text-base-content/60 mb-2">Upcoming</h2>
-                <p :if={@events_by_day == []} class="text-xl text-base-content/50 py-4">
-                  Nothing scheduled in the next {@agenda_days} days.
-                </p>
                 <div class="flex flex-col gap-y-4 overflow-hidden">
                   <div :for={{date, events} <- @events_by_day}>
                     <h3 class="text-2xl font-semibold text-base-content/80 border-b border-base-300 pb-1 mb-2">
                       {day_label(date, @today)}
                     </h3>
-                    <ul class="space-y-2">
+                    <p :if={events == []} class="text-xl text-base-content/50 py-1">
+                      No events
+                    </p>
+                    <ul :if={events != []} class="space-y-2">
                       <%= for event <- events do %>
                         <% end_label = event_end_label(event, @tz) %>
                         <% color_hex = event_color_hex(event) %>
                         <% day_progress = event_day_progress(event, date, @tz) %>
                         <li class={[
                           "flex items-stretch text-xl rounded",
-                          event_in_progress?(event, @now) && "bg-base-200/60",
-                          date == @today && event_past?(event, @now) && "opacity-50"
+                          event_in_progress?(event, @now) && "bg-base-200/60"
                         ]}>
                           <div class="w-2 shrink-0 mr-2 flex flex-col items-center">
                             <%= if end_label do %>

@@ -25,7 +25,7 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     {:ok, _live, html} = live(conn, ~p"/")
 
     assert html =~ "Welcome home"
-    assert html =~ "Nothing scheduled"
+    assert html =~ "No events"
     assert html =~ "No weather data yet."
   end
 
@@ -51,6 +51,11 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     {:ok, _live, html} = live(conn, ~p"/")
 
     assert html =~ "Piano lesson"
+    # Every day in the agenda range renders, including the ones with no
+    # events synced to them.
+    assert html =~ "No events"
+    assert html =~ "Today"
+    assert html =~ "Tomorrow"
   end
 
   test "colors an event's timeline indicator using its calendar's Tailwind color", %{conn: conn} do
@@ -187,7 +192,7 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     assert html =~ "background-color: oklch(64.6% 0.222 41.116)"
   end
 
-  test "dims an event on today's agenda that has already ended", %{conn: conn} do
+  test "hides an event on today's agenda that has already ended", %{conn: conn} do
     now = DateTime.utc_now()
     calendar = Dashboard.create_calendar!(%{name: "Family", ical_url: "https://x/cal.ics"})
 
@@ -201,8 +206,8 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
 
     {:ok, _live, html} = live(conn, ~p"/")
 
-    assert html =~ "Dentist"
-    assert html =~ "opacity-50"
+    refute html =~ "Dentist"
+    assert html =~ "No events"
   end
 
   test "highlights an event currently in progress", %{conn: conn} do
@@ -243,7 +248,7 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     assert html =~ "(Day 1 of 3)"
   end
 
-  test "shows an all-day event as 'All day' with no end line or dimming", %{conn: conn} do
+  test "shows an all-day event as 'All day' with no end line", %{conn: conn} do
     day = Date.add(Date.utc_today(), 1)
     calendar = Dashboard.create_calendar!(%{name: "Family", ical_url: "https://x/cal.ics"})
 
@@ -259,7 +264,6 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     {:ok, _live, html} = live(conn, ~p"/")
 
     assert html =~ "All day"
-    refute html =~ "opacity-50"
     refute html =~ "(Day"
   end
 
