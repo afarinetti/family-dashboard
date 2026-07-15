@@ -52,7 +52,8 @@ defmodule FamilyDashboard.Setting do
       :alerts_hidden_categories,
       :alerts_show_body,
       :news_refresh_minutes,
-      :news_retention_hours
+      :news_retention_hours,
+      :news_ticker_chars_per_second
     ]
 
     defaults [:read, create: @writable]
@@ -209,6 +210,16 @@ defmodule FamilyDashboard.Setting do
       public? true
       allow_nil? false
       default 24
+      constraints min: 1
+    end
+
+    # Reading pace for the ticker's marquee, in characters per second of
+    # animation — see marquee_duration/2 in DashboardLive. Higher scrolls
+    # faster.
+    attribute :news_ticker_chars_per_second, :integer do
+      public? true
+      allow_nil? false
+      default 14
       constraints min: 1
     end
 

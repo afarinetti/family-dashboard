@@ -272,7 +272,8 @@ defmodule FamilyDashboardWeb.DashboardLive do
     weather_last_error: nil,
     alerts_min_severity: "moderate",
     alerts_hidden_categories: "",
-    alerts_show_body: false
+    alerts_show_body: false,
+    news_ticker_chars_per_second: 14
   }
 
   @impl true
@@ -427,16 +428,15 @@ defmodule FamilyDashboardWeb.DashboardLive do
   # Scrolls at a roughly constant reading speed regardless of how many
   # headlines are queued, instead of a fixed-duration animation that would
   # crawl with few headlines and blur past with many. Clamped to a 10s floor
-  # so one or two short headlines don't zip by. (2x the original pace.)
-  @marquee_chars_per_second 20
-
-  defp marquee_duration(items) do
+  # so one or two short headlines don't zip by. Pace is operator-configurable
+  # via Setting.news_ticker_chars_per_second (edited in ash_admin).
+  defp marquee_duration(items, chars_per_second) do
     total_chars =
       items
       |> Enum.map(&(String.length(&1.title) + String.length(&1.news_feed.label)))
       |> Enum.sum()
 
-    max(round(total_chars / @marquee_chars_per_second), 10)
+    max(round(total_chars / chars_per_second), 10)
   end
 
   # All-day events are date-only (stored at UTC midnight of their date) and must
@@ -459,7 +459,8 @@ defmodule FamilyDashboardWeb.DashboardLive do
         daily_min: daily_min,
         daily_max: daily_max,
         news_ticker_id: "news-ticker-#{news_items_key(assigns.news_items)}",
-        marquee_duration: marquee_duration(assigns.news_items)
+        marquee_duration:
+          marquee_duration(assigns.news_items, assigns.setting.news_ticker_chars_per_second)
       )
 
     ~H"""
