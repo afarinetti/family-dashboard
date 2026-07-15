@@ -670,7 +670,16 @@ defmodule FamilyDashboardWeb.DashboardLive do
         <!-- News ticker: content is server-driven (@news_items), motion is pure CSS.
              phx-update="ignore" + an items-derived id means a clock tick (unchanged
              items) never touches this node — the scroll keeps running uninterrupted;
-             only a genuine news change (a different id) remounts it. -->
+             only a genuine news change (a different id) remounts it.
+
+             The track div needs w-max: a block-level flex container's width
+             defaults to filling its containing block (here, the 1080px-wide
+             ticker bar), not its content — even though its shrink-0 children
+             overflow that box and get clipped by the ancestor's
+             overflow-hidden. Without w-max, translateX(-50%) moves by half
+             of 1080px instead of half of the track's true (much larger)
+             content width, so the animation crawls through only the first
+             sliver of content instead of scrolling through all of it. -->
         <div
           :if={@news_items != []}
           id={@news_ticker_id}
@@ -678,7 +687,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
           class="shrink-0 w-full overflow-hidden bg-neutral text-neutral-content"
         >
           <div
-            class="flex whitespace-nowrap animate-marquee py-2"
+            class="flex w-max whitespace-nowrap animate-marquee py-2"
             style={"animation-duration: #{@marquee_duration}s"}
           >
             <span :for={item <- @news_items} class="flex items-center gap-2 pr-10 shrink-0">
