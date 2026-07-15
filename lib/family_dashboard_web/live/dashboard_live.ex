@@ -415,7 +415,14 @@ defmodule FamilyDashboardWeb.DashboardLive do
   # key, phx-update="ignore" leaves the node alone), but changes the moment
   # News.refresh_all/1 actually adds or removes an item, which remounts the
   # node and restarts the animation on genuinely new content.
-  defp news_items_key(items), do: items |> Enum.map(& &1.id) |> :erlang.phash2()
+  #
+  # Sorted before hashing so the key depends only on the *set* of ids, not
+  # their read order. Many items share an effective_time (no published_at,
+  # so several land on the same inserted_at from one fetch batch), and
+  # `load_news_items/1`'s sort_by is stable but SQLite gives no read-order
+  # guarantee across ties — without sorting, the same item set could hash
+  # differently between polls and spuriously remount the ticker mid-scroll.
+  defp news_items_key(items), do: items |> Enum.map(& &1.id) |> Enum.sort() |> :erlang.phash2()
 
   # Scrolls at a roughly constant reading speed regardless of how many
   # headlines are queued, instead of a fixed-duration animation that would
