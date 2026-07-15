@@ -521,7 +521,9 @@ defmodule FamilyDashboardWeb.DashboardLive do
                       </p>
                     </div>
                   </div>
-                  <p class="text-base text-base-content/70 capitalize">{@weather.condition}</p>
+                  <p class="text-base text-base-content/70 capitalize text-center">
+                    {@weather.condition}
+                  </p>
                 </div>
                 <div :if={is_nil(@weather)}>
                   <p :if={@setting.weather_last_error} class="text-base text-warning">
@@ -647,19 +649,72 @@ defmodule FamilyDashboardWeb.DashboardLive do
                       {day_label(date, @today)}
                     </h3>
                     <ul class="space-y-2">
-                      <li
-                        :for={event <- events}
-                        class="flex items-baseline gap-3 text-xl border-l-2 border-base-300 pl-3"
-                        style={event_border_style(event)}
-                      >
-                        <span class="w-28 shrink-0 text-base-content/60 tabular-nums">
-                          {event_time(event, @tz)}
-                        </span>
-                        <span class="font-medium">{event.title}</span>
-                        <span :if={event.location} class="text-lg text-base-content/50 truncate">
-                          · {event.location}
-                        </span>
-                      </li>
+                      <%= for event <- events do %>
+                        <% end_label = event_end_label(event, @tz) %>
+                        <% color_hex = event_color_hex(event) %>
+                        <% day_progress = event_day_progress(event, date, @tz) %>
+                        <li class={[
+                          "flex items-stretch text-xl rounded",
+                          event_in_progress?(event, @now) && "bg-base-200/60",
+                          date == @today && event_past?(event, @now) && "opacity-50"
+                        ]}>
+                          <div class="w-2 shrink-0 mr-2 flex flex-col items-center">
+                            <%= if end_label do %>
+                              <span
+                                class={[
+                                  "w-2 h-2 rounded-full shrink-0",
+                                  is_nil(color_hex) && "bg-base-content/40"
+                                ]}
+                                style={color_hex && "background-color: #{color_hex}"}
+                              ></span>
+                              <span
+                                class={[
+                                  "w-1 flex-1 my-0.5 rounded-full",
+                                  is_nil(color_hex) && "bg-base-300"
+                                ]}
+                                style={color_hex && "background-color: #{color_hex}"}
+                              ></span>
+                              <span
+                                class={[
+                                  "w-2 h-2 rounded-full border-2 shrink-0",
+                                  is_nil(color_hex) && "border-base-content/40"
+                                ]}
+                                style={color_hex && "border-color: #{color_hex}"}
+                              ></span>
+                            <% else %>
+                              <span
+                                class={["w-1 flex-1 rounded-full", is_nil(color_hex) && "bg-base-300"]}
+                                style={color_hex && "background-color: #{color_hex}"}
+                              ></span>
+                            <% end %>
+                          </div>
+                          <div class="flex-1 min-w-0 flex items-start gap-3">
+                            <div class="w-28 shrink-0 tabular-nums leading-tight text-base-content/60">
+                              <div>{event_start_label(event, @tz)}</div>
+                              <div :if={end_label} class="text-lg text-base-content/30">
+                                {end_label}
+                              </div>
+                            </div>
+                            <div class="min-w-0 flex flex-col leading-tight">
+                              <span class="font-medium">
+                                {event.title}
+                                <span
+                                  :if={day_progress}
+                                  class="text-lg font-normal text-base-content/30"
+                                >
+                                  {day_progress}
+                                </span>
+                              </span>
+                              <span
+                                :if={event.location}
+                                class="text-lg text-base-content/50 truncate"
+                              >
+                                {event.location}
+                              </span>
+                            </div>
+                          </div>
+                        </li>
+                      <% end %>
                     </ul>
                   </div>
                 </div>
@@ -740,11 +795,81 @@ defmodule FamilyDashboardWeb.DashboardLive do
     end
   end
 
-  defp event_time(%{all_day: true}, _tz), do: "All day"
+  defp event_start_label(%{all_day: true}, _tz), do: "All day"
 
-  defp event_time(%{starts_at: starts_at}, tz) do
+  defp event_start_label(%{starts_at: starts_at}, tz) do
     starts_at |> DateTime.shift_zone!(tz) |> Calendar.strftime("%-I:%M %p")
   end
+
+  # Line 2 of the time column, or nil to omit it entirely. All-day events
+  # already say everything on line 1 ("All day"); events with no known end
+  # can't say anything truthful about when they finish. A same-day timed
+  # event gets its end time; an event that finishes on a later calendar day
+  # gets the end day instead, since "which day" is the more useful fact at a
+  # glance than "which minute".
+  defp event_end_label(%{all_day: true}, _tz), do: nil
+  defp event_end_label(%{ends_at: nil}, _tz), do: nil
+
+  defp event_end_label(%{starts_at: starts_at, ends_at: ends_at}, tz) do
+    start_date = starts_at |> DateTime.shift_zone!(tz) |> DateTime.to_date()
+    end_date = ends_at |> DateTime.shift_zone!(tz) |> DateTime.to_date()
+
+    if Date.compare(start_date, end_date) == :lt do
+      "until " <> Calendar.strftime(end_date, "%a")
+    else
+      ends_at |> DateTime.shift_zone!(tz) |> Calendar.strftime("%-I:%M %p")
+    end
+  end
+
+  # The inclusive local start/end dates a genuinely multi-day event spans,
+  # or nil for a single-day event or one with no known end (nothing to
+  # measure a span against). All-day DTEND is exclusive per iCal, so the
+  # stored `ends_at` date is one day past the real last day.
+  defp event_inclusive_date_range(%{ends_at: nil}, _tz), do: nil
+
+  defp event_inclusive_date_range(%{all_day: true, starts_at: starts_at, ends_at: ends_at}, _tz) do
+    start_date = DateTime.to_date(starts_at)
+    end_date = Date.add(DateTime.to_date(ends_at), -1)
+    if Date.compare(start_date, end_date) == :lt, do: {start_date, end_date}
+  end
+
+  defp event_inclusive_date_range(%{starts_at: starts_at, ends_at: ends_at}, tz) do
+    start_date = starts_at |> DateTime.shift_zone!(tz) |> DateTime.to_date()
+    end_date = ends_at |> DateTime.shift_zone!(tz) |> DateTime.to_date()
+    if Date.compare(start_date, end_date) == :lt, do: {start_date, end_date}
+  end
+
+  # "(Day X of Y)" suffix for a title, shown only on genuinely multi-day
+  # events — `date` is the agenda day-group this row is rendered under.
+  defp event_day_progress(event, date, tz) do
+    case event_inclusive_date_range(event, tz) do
+      nil ->
+        nil
+
+      {start_date, end_date} ->
+        total = Date.diff(end_date, start_date) + 1
+        current = Date.diff(date, start_date) + 1
+        "(Day #{current} of #{total})"
+    end
+  end
+
+  # "Happening right now" only makes sense for a timed event with a known
+  # end — an all-day event isn't a moment, and an event with no ends_at
+  # can't be bounded without guessing.
+  defp event_in_progress?(%{all_day: true}, _now), do: false
+  defp event_in_progress?(%{ends_at: nil}, _now), do: false
+
+  defp event_in_progress?(%{starts_at: starts_at, ends_at: ends_at}, now) do
+    DateTime.compare(starts_at, now) != :gt and DateTime.compare(now, ends_at) == :lt
+  end
+
+  # Dimmed only when we can say for certain the event is over — same
+  # constraints as event_in_progress?/2 (timed, known end). The caller
+  # additionally restricts this to the Today group so the effect never
+  # bleeds into future days.
+  defp event_past?(%{all_day: true}, _now), do: false
+  defp event_past?(%{ends_at: nil}, _now), do: false
+  defp event_past?(%{ends_at: ends_at}, now), do: DateTime.compare(ends_at, now) == :lt
 
   # A calendar's identity color must render as the same hue on every theme (see
   # the daisyUI color rules' theme-independence exception), so it's rendered as a
@@ -752,14 +877,11 @@ defmodule FamilyDashboardWeb.DashboardLive do
   # untrusted (nullable, unconstrained DB text) and must never crash this always-on
   # display, so only a value that's an exact key in @color_shade_hex is ever used —
   # that map doubles as the allowlist.
-  defp event_border_style(%{calendar: %{color: color}}) when is_binary(color) do
-    case Map.fetch(@color_shade_hex, color) do
-      {:ok, hex} -> "border-left-color: #{hex}"
-      :error -> nil
-    end
+  defp event_color_hex(%{calendar: %{color: color}}) when is_binary(color) do
+    Map.get(@color_shade_hex, color)
   end
 
-  defp event_border_style(_event), do: nil
+  defp event_color_hex(_event), do: nil
 
   # --- 8-hour / 7-day bar helpers ---
   #

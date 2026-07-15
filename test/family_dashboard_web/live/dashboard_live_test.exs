@@ -7,6 +7,20 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
 
   defp ymd(date), do: Date.to_iso8601(date, :basic)
 
+  # The dashboard renders times in the configured Setting.time_zone (defaults
+  # to "America/Chicago" at the schema level), not UTC — mirror that here
+  # instead of assuming UTC, so these tests don't depend on which default is
+  # currently seeded.
+  defp local_tz do
+    case Dashboard.current_setting() do
+      {:ok, %{time_zone: tz}} when is_binary(tz) -> tz
+      _ -> "Etc/UTC"
+    end
+  end
+
+  defp local_time(dt),
+    do: dt |> DateTime.shift_zone!(local_tz()) |> Calendar.strftime("%-I:%M %p")
+
   test "renders the greeting and empty states", %{conn: conn} do
     {:ok, _live, html} = live(conn, ~p"/")
 
@@ -39,7 +53,7 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     assert html =~ "Piano lesson"
   end
 
-  test "colors an event's border using its calendar's Tailwind color", %{conn: conn} do
+  test "colors an event's timeline indicator using its calendar's Tailwind color", %{conn: conn} do
     day = Date.add(Date.utc_today(), 1)
 
     calendar =
@@ -58,10 +72,10 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
 
     {:ok, _live, html} = live(conn, ~p"/")
 
-    assert html =~ "border-left-color: oklch(64.6% 0.222 41.116)"
+    assert html =~ "background-color: oklch(64.6% 0.222 41.116)"
   end
 
-  test "falls back to a neutral border when the calendar has no color", %{conn: conn} do
+  test "falls back to a neutral indicator when the calendar has no color", %{conn: conn} do
     day = Date.add(Date.utc_today(), 1)
     calendar = Dashboard.create_calendar!(%{name: "Family", ical_url: "https://x/cal.ics"})
 
@@ -74,13 +88,14 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
 
     {:ok, _live, html} = live(conn, ~p"/")
 
-    refute html =~ "border-left-color"
-    assert html =~ "border-base-300"
+    refute html =~ "background-color:"
+    assert html =~ "bg-base-300"
   end
 
-  test "falls back to a neutral border when the calendar color isn't a valid Tailwind shade", %{
-    conn: conn
-  } do
+  test "falls back to a neutral indicator when the calendar color isn't a valid Tailwind shade",
+       %{
+         conn: conn
+       } do
     day = Date.add(Date.utc_today(), 1)
 
     calendar =
@@ -99,10 +114,10 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
 
     {:ok, _live, html} = live(conn, ~p"/")
 
-    refute html =~ "border-left-color"
+    refute html =~ "background-color:"
   end
 
-  test "falls back to a neutral border for a near-miss shade that isn't in the palette", %{
+  test "falls back to a neutral indicator for a near-miss shade that isn't in the palette", %{
     conn: conn
   } do
     day = Date.add(Date.utc_today(), 1)
@@ -123,7 +138,148 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
 
     {:ok, _live, html} = live(conn, ~p"/")
 
-    refute html =~ "border-left-color"
+    refute html =~ "background-color:"
+  end
+
+  test "renders an event's end time and location on their own line", %{conn: conn} do
+    day = Date.add(Date.utc_today(), 1)
+    starts_at = DateTime.new!(day, ~T[15:30:00], "Etc/UTC")
+    ends_at = DateTime.new!(day, ~T[16:30:00], "Etc/UTC")
+    calendar = Dashboard.create_calendar!(%{name: "Family", ical_url: "https://x/cal.ics"})
+
+    Dashboard.create_event!(%{
+      calendar_id: calendar.id,
+      uid: "e1",
+      title: "Soccer practice",
+      location: "Fairview Park",
+      starts_at: starts_at,
+      ends_at: ends_at
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    assert html =~ local_time(starts_at)
+    assert html =~ local_time(ends_at)
+    assert html =~ "Fairview Park"
+  end
+
+  test "colors the timeline connector (not the row border) for a timed event with a known end",
+       %{conn: conn} do
+    day = Date.add(Date.utc_today(), 1)
+
+    calendar =
+      Dashboard.create_calendar!(%{
+        name: "Family",
+        ical_url: "https://x/cal.ics",
+        color: "orange-600"
+      })
+
+    Dashboard.create_event!(%{
+      calendar_id: calendar.id,
+      uid: "e1",
+      title: "Soccer practice",
+      starts_at: DateTime.new!(day, ~T[15:30:00], "Etc/UTC"),
+      ends_at: DateTime.new!(day, ~T[16:30:00], "Etc/UTC")
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    assert html =~ "background-color: oklch(64.6% 0.222 41.116)"
+  end
+
+  test "dims an event on today's agenda that has already ended", %{conn: conn} do
+    now = DateTime.utc_now()
+    calendar = Dashboard.create_calendar!(%{name: "Family", ical_url: "https://x/cal.ics"})
+
+    Dashboard.create_event!(%{
+      calendar_id: calendar.id,
+      uid: "e1",
+      title: "Dentist",
+      starts_at: DateTime.add(now, -3600, :second),
+      ends_at: DateTime.add(now, -1800, :second)
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    assert html =~ "Dentist"
+    assert html =~ "opacity-50"
+  end
+
+  test "highlights an event currently in progress", %{conn: conn} do
+    now = DateTime.utc_now()
+    calendar = Dashboard.create_calendar!(%{name: "Family", ical_url: "https://x/cal.ics"})
+
+    Dashboard.create_event!(%{
+      calendar_id: calendar.id,
+      uid: "e1",
+      title: "Book club",
+      starts_at: DateTime.add(now, -1800, :second),
+      ends_at: DateTime.add(now, 1800, :second)
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    assert html =~ "Book club"
+    assert html =~ "bg-base-200/60"
+  end
+
+  test "shows the end day for a timed event spanning multiple days", %{conn: conn} do
+    day = Date.add(Date.utc_today(), 1)
+    ends_at = DateTime.new!(Date.add(day, 2), ~T[12:00:00], "Etc/UTC")
+    calendar = Dashboard.create_calendar!(%{name: "Family", ical_url: "https://x/cal.ics"})
+
+    Dashboard.create_event!(%{
+      calendar_id: calendar.id,
+      uid: "e1",
+      title: "Camp week",
+      starts_at: DateTime.new!(day, ~T[14:00:00], "Etc/UTC"),
+      ends_at: ends_at
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    local_end_day = ends_at |> DateTime.shift_zone!(local_tz()) |> DateTime.to_date()
+    assert html =~ "until #{Calendar.strftime(local_end_day, "%a")}"
+    assert html =~ "(Day 1 of 3)"
+  end
+
+  test "shows an all-day event as 'All day' with no end line or dimming", %{conn: conn} do
+    day = Date.add(Date.utc_today(), 1)
+    calendar = Dashboard.create_calendar!(%{name: "Family", ical_url: "https://x/cal.ics"})
+
+    Dashboard.create_event!(%{
+      calendar_id: calendar.id,
+      uid: "e1",
+      title: "School holiday",
+      all_day: true,
+      starts_at: DateTime.new!(day, ~T[00:00:00], "Etc/UTC"),
+      ends_at: DateTime.new!(Date.add(day, 1), ~T[00:00:00], "Etc/UTC")
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    assert html =~ "All day"
+    refute html =~ "opacity-50"
+    refute html =~ "(Day"
+  end
+
+  test "shows a (Day X of Y) suffix on the title for a multi-day all-day event", %{conn: conn} do
+    day = Date.add(Date.utc_today(), 1)
+    calendar = Dashboard.create_calendar!(%{name: "Family", ical_url: "https://x/cal.ics"})
+
+    Dashboard.create_event!(%{
+      calendar_id: calendar.id,
+      uid: "e1",
+      title: "Camp week",
+      all_day: true,
+      starts_at: DateTime.new!(day, ~T[00:00:00], "Etc/UTC"),
+      ends_at: DateTime.new!(Date.add(day, 4), ~T[00:00:00], "Etc/UTC")
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    assert html =~ "All day"
+    assert html =~ "(Day 1 of 4)"
   end
 
   test "live-updates the agenda when an events broadcast arrives", %{conn: conn} do
