@@ -679,7 +679,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
         >
           <div
             class="flex whitespace-nowrap animate-marquee py-2"
-            style={"--marquee-duration: #{@marquee_duration}s"}
+            style={"animation-duration: #{@marquee_duration}s"}
           >
             <span :for={item <- @news_items} class="flex items-center gap-2 pr-10 shrink-0">
               <span class="badge badge-sm badge-outline">{item.news_feed.label}</span>

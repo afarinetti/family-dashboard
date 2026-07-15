@@ -109,7 +109,7 @@
    full digit-strength contrast. */
 @theme {
   --animate-blink: blink 1s steps(1, end) infinite;
-  --animate-marquee: marquee var(--marquee-duration, 30s) linear infinite;
+  --animate-marquee: marquee 30s linear infinite;
 }
 
 @keyframes blink {
@@ -117,13 +117,20 @@
   50%, 100% { opacity: 0; }
 }
 
-/* The bottom news ticker's continuous scroll. Duration is driven by the
-   `--marquee-duration` custom property set inline per-render (based on
-   content length — see marquee_duration/1 in dashboard_live.ex), falling back
-   to 30s if unset. The template renders the item track twice back-to-back;
-   this animates exactly -50% (one copy's width) so the loop has no visible
-   seam — the second copy is already in place to take over as the first
-   scrolls off. */
+/* The bottom news ticker's continuous scroll. Duration is set inline per-render
+   as the real `animation-duration` property (based on content length — see
+   marquee_duration/1 in dashboard_live.ex), NOT as a custom property fed
+   through --animate-marquee above: a custom property that's declared at
+   :root and internally references a *second* custom property does not pick
+   up that inner variable when it's only set via an element's inline style
+   (confirmed in Chromium — the animation silently falls back to the
+   hardcoded default, in this case restarting the loop every 30s regardless
+   of content). Setting animation-duration directly sidesteps the nested-var
+   resolution entirely; it's a real longhand overriding one component of the
+   shorthand set by the class, which works fine. The template renders the
+   item track twice back-to-back; this animates exactly -50% (one copy's
+   width) so the loop has no visible seam — the second copy is already in
+   place to take over as the first scrolls off. */
 @keyframes marquee {
   from {
     transform: translateX(0);
