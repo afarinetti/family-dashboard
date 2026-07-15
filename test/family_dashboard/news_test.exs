@@ -294,4 +294,73 @@ defmodule FamilyDashboard.News.RefreshAllTest do
     {:ok, setting} = Dashboard.current_setting()
     assert setting.news_last_attempted_at
   end
+
+  test "drops an item whose pubDate is older than the retention window" do
+    Dashboard.create_news_feed!(%{url: "https://feed.example/rss.xml", label: "Example"})
+
+    xml =
+      rss("""
+      <item>
+        <title>Ancient headline</title>
+        <link>https://example.com/ancient</link>
+        <guid>ancient-1</guid>
+        <pubDate>Mon, 02 Oct 2023 15:00:00 GMT</pubDate>
+      </item>
+      <item>
+        <title>Fresh headline</title>
+        <link>https://example.com/fresh</link>
+        <guid>fresh-1</guid>
+      </item>
+      """)
+
+    plug = fn conn -> Req.Test.text(conn, xml) end
+
+    assert :ok = News.refresh_all(plug: plug)
+
+    titles = Dashboard.list_news_items!() |> Enum.map(& &1.title)
+    assert titles == ["Fresh headline"]
+  end
+
+  test "uses the configured news_retention_hours as the freshness cutoff" do
+    {:ok, setting} = Dashboard.current_setting()
+    Dashboard.update_setting!(setting, %{news_retention_hours: 1})
+    Dashboard.create_news_feed!(%{url: "https://feed.example/rss.xml", label: "Example"})
+
+    stale_at = DateTime.utc_now() |> DateTime.add(-2, :hour)
+
+    xml =
+      rss("""
+      <item>
+        <title>Two hours old</title>
+        <link>https://example.com/two-hours</link>
+        <guid>two-hours-1</guid>
+        <pubDate>#{Calendar.strftime(stale_at, "%a, %d %b %Y %H:%M:%S GMT")}</pubDate>
+      </item>
+      """)
+
+    plug = fn conn -> Req.Test.text(conn, xml) end
+
+    assert :ok = News.refresh_all(plug: plug)
+    assert Dashboard.list_news_items!() == []
+  end
+
+  test "still persists an item with no pubDate regardless of retention window" do
+    {:ok, setting} = Dashboard.current_setting()
+    Dashboard.update_setting!(setting, %{news_retention_hours: 1})
+    Dashboard.create_news_feed!(%{url: "https://feed.example/rss.xml", label: "Example"})
+
+    xml =
+      rss("""
+      <item>
+        <title>No date</title>
+        <link>https://example.com/no-date</link>
+        <guid>no-date-1</guid>
+      </item>
+      """)
+
+    plug = fn conn -> Req.Test.text(conn, xml) end
+
+    assert :ok = News.refresh_all(plug: plug)
+    assert [%{title: "No date"}] = Dashboard.list_news_items!()
+  end
 end

@@ -119,25 +119,36 @@ defmodule FamilyDashboard.News do
   are removed only by `FamilyDashboard.NewsReaper`, on its own schedule.
   Always stamps `Setting.news_last_attempted_at`, regardless of per-feed
   outcome, so `Heartbeat` doesn't re-enqueue every minute.
+
+  Items whose `published_at` is older than `news_retention_hours` are dropped
+  before persisting — some feeds (observed on CNN) occasionally serve items
+  with stale pubDates years in the past, and `NewsReaper` only guarantees
+  reaping items *older* than the window while always protecting the newest
+  item per feed, so a stale item let in here could otherwise linger on the
+  ticker indefinitely. Items with no `published_at` are always kept (they
+  fall back to fetch time, which is always fresh).
   """
   @spec refresh_all(keyword()) :: :ok
   def refresh_all(opts \\ []) do
     record_attempt()
+    cutoff = retention_cutoff()
 
     Dashboard.list_news_feeds!()
     |> Enum.filter(& &1.enabled)
-    |> Enum.each(&refresh_feed(&1, opts))
+    |> Enum.each(&refresh_feed(&1, cutoff, opts))
 
     broadcast("news", :news_updated)
     :ok
   end
 
-  defp refresh_feed(feed, opts) do
+  defp refresh_feed(feed, cutoff, opts) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     case fetch_items(feed.url, opts) do
       {:ok, items} ->
-        Enum.each(items, fn item ->
+        items
+        |> Enum.filter(&fresh?(&1, cutoff))
+        |> Enum.each(fn item ->
           Dashboard.create_news_item!(Map.put(item, :news_feed_id, feed.id))
         end)
 
@@ -146,6 +157,21 @@ defmodule FamilyDashboard.News do
       {:error, reason} ->
         Dashboard.update_news_feed!(feed, %{last_error: inspect(reason)})
     end
+  end
+
+  defp fresh?(%{published_at: nil}, _cutoff), do: true
+
+  defp fresh?(%{published_at: published_at}, cutoff),
+    do: DateTime.compare(published_at, cutoff) != :lt
+
+  defp retention_cutoff do
+    hours =
+      case Dashboard.current_setting() do
+        {:ok, %{news_retention_hours: hours}} when is_integer(hours) -> hours
+        _ -> 24
+      end
+
+    DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.add(-hours * 3600, :second)
   end
 
   defp record_attempt do
