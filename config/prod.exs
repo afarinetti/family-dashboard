@@ -8,17 +8,13 @@ import Config
 config :family_dashboard, FamilyDashboardWeb.Endpoint,
   cache_static_manifest: "priv/static/cache_manifest.json"
 
-# Force using SSL in production. This also sets the "strict-security-transport" header,
-# known as HSTS. If you have a health check endpoint, you may want to exclude it below.
-# Note `:force_ssl` is required to be set at compile-time.
-config :family_dashboard, FamilyDashboardWeb.Endpoint,
-  force_ssl: [
-    rewrite_on: [:x_forwarded_proto],
-    exclude: [
-      # paths: ["/health"],
-      hosts: ["localhost", "127.0.0.1"]
-    ]
-  ]
+# This app deploys to exactly one target: a home kiosk device on a trusted LAN,
+# with no TLS terminator in front of it (see deploy/README.md). `:force_ssl` is
+# baked in at compile time (Phoenix wires `Plug.SSL` into the compiled endpoint
+# pipeline from whatever value is visible when this file compiles), so it can't
+# be toggled from `runtime.exs` — it must be set here, or left off entirely as
+# below. If this app ever gains a public/cloud deployment, reinstate a
+# `force_ssl` block for that target.
 
 # Configure Swoosh API Client
 config :swoosh, api_client: Swoosh.ApiClient.Req

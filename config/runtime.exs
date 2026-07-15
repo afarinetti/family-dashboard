@@ -124,11 +124,20 @@ if config_env() == :prod do
       """
 
   host = System.get_env("PHX_HOST") || "example.com"
+  port = String.to_integer(System.get_env("PORT") || "4000")
 
   config :family_dashboard, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   config :family_dashboard, FamilyDashboardWeb.Endpoint,
-    url: [host: host, port: 443, scheme: "https"],
+    # This app serves plain http directly to the kiosk's local browser and any
+    # LAN device — there is no TLS terminator in front of it (see
+    # deploy/README.md), so `url:` describes http on the app's own port rather
+    # than the https/443 a public-facing deploy would use. `check_origin: false`
+    # trusts the home LAN (the device's DHCP IP can change, so an explicit
+    # origin allow-list would be brittle); see `config/prod.exs` for the
+    # matching compile-time `force_ssl` decision.
+    url: [host: host, port: port, scheme: "http"],
+    check_origin: false,
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
@@ -137,6 +146,10 @@ if config_env() == :prod do
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ],
     secret_key_base: secret_key_base
+
+  # Daily JSON backups (see FamilyDashboard.Backup) default to the ephemeral
+  # `priv/backups` inside the release; point them at the persistent volume.
+  config :family_dashboard, :backup_dir, System.get_env("BACKUP_DIR") || "/data/backups"
 
   # ## SSL Support
   #

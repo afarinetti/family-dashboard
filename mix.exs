@@ -12,7 +12,21 @@ defmodule FamilyDashboard.MixProject do
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
-      consolidate_protocols: Mix.env() != :dev
+      consolidate_protocols: Mix.env() != :dev,
+      releases: releases()
+    ]
+  end
+
+  # Bundles ERTS so the runner image doesn't need a matching Erlang install —
+  # see the Containerfile's builder stage (`mix release`). No `rel/` overlays:
+  # migrations self-run at boot (see FamilyDashboard.Application) and this
+  # single-node kiosk deploy has no clustering to configure.
+  defp releases do
+    [
+      family_dashboard: [
+        include_executables_for: [:unix],
+        steps: [:assemble]
+      ]
     ]
   end
 

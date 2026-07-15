@@ -1,0 +1,34 @@
+# Build artifacts — rebuilt fresh inside the image
+_build/
+deps/
+priv/static/assets/
+
+# VCS / editor / tooling
+.git/
+.gitignore
+.elixir_ls/
+.vscode/
+.idea/
+*.swp
+
+# SQLite databases — never bake app data into the image; the prod DB lives on
+# a persistent volume (see deploy/README.md), not in the container filesystem.
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Secrets — never baked into the image; injected at runtime as env vars.
+.env
+.env.*
+!.env.example
+
+# Node is not used at all (mix-managed esbuild/tailwind), but ignore just in
+# case a local node_modules ever appears under assets/.
+node_modules/
+
+# Not needed at runtime
+test/
+docs/
+*.md
+!README.md

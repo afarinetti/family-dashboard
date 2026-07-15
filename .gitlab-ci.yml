@@ -1,0 +1,76 @@
+# Builds the family_dashboard OCI image with buildah (no docker-in-docker
+# privilege needed — same OCI toolchain family as the Docker/Podman runtimes
+# that consume the image) and publishes it to GitHub Container Registry.
+# The Ubuntu Core kiosk device (deploy/README.md) pulls `latest` from ghcr.io.
+#
+# Required CI/CD variables (Settings > CI/CD > Variables, mark BOTH masked):
+#   GHCR_USER  - GitHub username or org that owns the ghcr.io package
+#   GHCR_TOKEN - GitHub PAT with `write:packages` (and `read:packages`) scope
+#
+# The ghcr.io/<owner>/family_dashboard package should be set to Public so the
+# device can `docker pull` without an on-device `docker login`; the image
+# holds no secrets (those are injected at container runtime — see
+# deploy/core/family_dashboard.env.example). If it must stay private, run a
+# one-time `docker login ghcr.io` on the device instead.
+
+stages:
+  - test
+  - build
+
+variables:
+  IMAGE: ghcr.io/${GHCR_USER}/family_dashboard
+
+# Guards the registry against a broken build — compiles with warnings-as-errors
+# and runs the suite before anything is pushed. Uses the same base image
+# family as the Containerfile's builder stage for parity.
+test:
+  stage: test
+  image: hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20250428-slim
+  variables:
+    MIX_ENV: test
+  before_script:
+    - apt-get update -y && apt-get install -y --no-install-recommends build-essential git ca-certificates
+    - mix local.hex --force
+    - mix local.rebar --force
+    - mix deps.get
+  script:
+    - mix compile --warnings-as-errors
+    - mix test
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - deps/
+      - _build/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG'
+
+build:
+  stage: build
+  image: quay.io/buildah/stable
+  variables:
+    # Shared GitLab runners typically can't use the overlay driver without
+    # extra privileges; vfs works everywhere at the cost of some speed. Switch
+    # to `overlay` if your runner supports privileged/fuse-overlayfs.
+    STORAGE_DRIVER: vfs
+  before_script:
+    - buildah login -u "$GHCR_USER" -p "$GHCR_TOKEN" ghcr.io
+  script:
+    - buildah --storage-driver=$STORAGE_DRIVER bud --layers -t "$IMAGE:$CI_COMMIT_SHORT_SHA" -f Containerfile .
+    - buildah --storage-driver=$STORAGE_DRIVER tag "$IMAGE:$CI_COMMIT_SHORT_SHA" "$IMAGE:latest"
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        buildah --storage-driver=$STORAGE_DRIVER tag "$IMAGE:$CI_COMMIT_SHORT_SHA" "$IMAGE:$CI_COMMIT_TAG"
+      fi
+    - buildah --storage-driver=$STORAGE_DRIVER push "$IMAGE:$CI_COMMIT_SHORT_SHA"
+    - buildah --storage-driver=$STORAGE_DRIVER push "$IMAGE:latest"
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        buildah --storage-driver=$STORAGE_DRIVER push "$IMAGE:$CI_COMMIT_TAG"
+      fi
+  rules:
+    # Publish from main (kiosk tracks `latest`) and from any git tag
+    # (immutable release tags, e.g. for rollback).
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG'
