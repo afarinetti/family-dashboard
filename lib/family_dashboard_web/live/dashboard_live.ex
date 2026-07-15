@@ -419,9 +419,9 @@ defmodule FamilyDashboardWeb.DashboardLive do
 
   # Scrolls at a roughly constant reading speed regardless of how many
   # headlines are queued, instead of a fixed-duration animation that would
-  # crawl with few headlines and blur past with many. Clamped to a 20s floor
-  # so one or two short headlines don't zip by.
-  @marquee_chars_per_second 10
+  # crawl with few headlines and blur past with many. Clamped to a 10s floor
+  # so one or two short headlines don't zip by. (2x the original pace.)
+  @marquee_chars_per_second 20
 
   defp marquee_duration(items) do
     total_chars =
@@ -429,7 +429,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
       |> Enum.map(&(String.length(&1.title) + String.length(&1.news_feed.label)))
       |> Enum.sum()
 
-    max(round(total_chars / @marquee_chars_per_second), 20)
+    max(round(total_chars / @marquee_chars_per_second), 10)
   end
 
   # All-day events are date-only (stored at UTC midnight of their date) and must
