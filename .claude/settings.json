@@ -1,0 +1,7 @@
+{
+  "enabledPlugins": {
+    "elixir-phoenix@oliver-kriska": true,
+    "catchup@oliver-kriska": true,
+    "ash@elixir": true
+  }
+}

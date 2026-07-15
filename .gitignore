@@ -43,3 +43,9 @@ npm-debug.log
 .env
 .env.*
 !.env.example
+
+# Scratch mockups/state from the superpowers brainstorming visual companion.
+/.superpowers/
+
+# Runtime-generated backup exports (grow unbounded; may contain personal data).
+/priv/backups/
