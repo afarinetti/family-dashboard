@@ -581,6 +581,12 @@ defmodule FamilyDashboardWeb.DashboardLive do
                     <span :if={pop_pct(hour.pop)} class="text-base text-info text-right tabular-nums">
                       {pop_pct(hour.pop)}%
                     </span>
+                    <span
+                      :if={is_nil(pop_pct(hour.pop)) and is_number(hour.feels_like)}
+                      class="text-base text-base-content/40 text-right tabular-nums"
+                    >
+                      ~{round_temp(hour.feels_like)}°
+                    </span>
                   </div>
                 </div>
               </div>

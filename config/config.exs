@@ -23,7 +23,8 @@ config :family_dashboard, Oban,
      crontab: [
        {"0 3 * * *", FamilyDashboard.Workers.Backup},
        {"0 3 * * *", FamilyDashboard.Workers.WeatherReap},
-       {"0 3 * * *", FamilyDashboard.Workers.NewsReap}
+       {"0 3 * * *", FamilyDashboard.Workers.NewsReap},
+       {"0 3 * * *", FamilyDashboard.Workers.EventReap}
      ]}
   ]
 
