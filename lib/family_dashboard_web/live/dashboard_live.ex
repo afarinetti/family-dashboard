@@ -1047,7 +1047,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
       "showers" -> "🌦️"
       "thunderstorm" -> "⛈️"
       "snow" -> "❄️"
-      "fog" -> "🌫️"
+      "fog" -> "🌁"
       "tornado" -> "🌪️"
       "hurricane" -> "🌀"
       "blizzard" -> "🌨️"
