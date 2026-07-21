@@ -582,7 +582,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
                       {pop_pct(hour.pop)}%
                     </span>
                     <span
-                      :if={is_nil(pop_pct(hour.pop)) and is_number(hour.feels_like)}
+                      :if={is_nil(pop_pct(hour.pop)) and notable_feels_like?(hour)}
                       class="text-base text-base-content/40 text-right tabular-nums"
                     >
                       ~{round_temp(hour.feels_like)}°
@@ -1010,6 +1010,15 @@ defmodule FamilyDashboardWeb.DashboardLive do
   end
 
   defp pop_pct(_), do: nil
+
+  # Only worth showing feels-like when it diverges from the actual temp —
+  # within 1 rounded degree, it's redundant with the temp already shown.
+  defp notable_feels_like?(%{temp: temp, feels_like: feels_like})
+       when is_number(temp) and is_number(feels_like) do
+    abs(round(feels_like) - round(temp)) > 1
+  end
+
+  defp notable_feels_like?(_hour), do: false
 
   # Map a provider-neutral icon token (see FamilyDashboard.Weather.Provider) to a
   # simple emoji (offline-friendly, no image fetch). A placeholder for a missing
