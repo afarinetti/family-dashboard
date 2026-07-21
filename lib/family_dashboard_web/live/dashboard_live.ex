@@ -357,9 +357,10 @@ defmodule FamilyDashboardWeb.DashboardLive do
 
     active =
       Enum.filter(alerts, fn alert ->
-        severity_rank(alert.severity) >= severity_rank(setting.alerts_min_severity) and
+        in_alert_window?(alert, now) and
           alert.category not in hidden_categories(setting.alerts_hidden_categories) and
-          in_alert_window?(alert, now)
+          (severity_rank(alert.severity) >= severity_rank(setting.alerts_min_severity) or
+             alert.category in always_show_categories(setting.alerts_always_show_categories))
       end)
 
     assign(socket, :active_alerts, active)
@@ -368,6 +369,14 @@ defmodule FamilyDashboardWeb.DashboardLive do
   defp hidden_categories(nil), do: []
 
   defp hidden_categories(categories) do
+    categories
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+  end
+
+  defp always_show_categories(nil), do: []
+
+  defp always_show_categories(categories) do
     categories
     |> String.split(",", trim: true)
     |> Enum.map(&String.trim/1)

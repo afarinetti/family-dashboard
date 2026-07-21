@@ -42,6 +42,11 @@ defmodule FamilyDashboard.SettingTest do
       assert setting().alerts_show_body == false
     end
 
+    test "defaults to a life-safety always-show category list" do
+      assert setting().alerts_always_show_categories ==
+               "heat,flood,tornado,hurricane,tropical,tsunami,fire,wind,winter,freeze,coastal,marine"
+    end
+
     test "hidden categories and show-body are writable" do
       assert {:ok, updated} =
                Dashboard.update_setting(setting(), %{
@@ -51,6 +56,15 @@ defmodule FamilyDashboard.SettingTest do
 
       assert updated.alerts_hidden_categories == "small craft advisory,air quality"
       assert updated.alerts_show_body == true
+    end
+
+    test "always-show categories are writable" do
+      assert {:ok, updated} =
+               Dashboard.update_setting(setting(), %{
+                 alerts_always_show_categories: "heat,flood"
+               })
+
+      assert updated.alerts_always_show_categories == "heat,flood"
     end
   end
 

@@ -50,6 +50,7 @@ defmodule FamilyDashboard.Setting do
       :sync_max_attempts,
       :alerts_min_severity,
       :alerts_hidden_categories,
+      :alerts_always_show_categories,
       :alerts_show_body,
       :news_refresh_minutes,
       :news_retention_hours,
@@ -182,6 +183,27 @@ defmodule FamilyDashboard.Setting do
       public? true
       allow_nil? false
       default ""
+      constraints allow_empty?: true
+    end
+
+    # Comma-delimited alert `category` tokens (Xweather `cat` codes, e.g. "heat",
+    # "flood") that ALWAYS render regardless of severity, overriding
+    # alerts_min_severity. Lets life-safety advisories that Xweather rates "minor"
+    # (Heat/Flood/Wind Advisory) still reach the display. `alerts_hidden_categories`
+    # takes precedence, and the active time-window always applies. Parsed in
+    # DashboardLive.
+    #
+    # Xweather's docs (weather-api/endpoints/alerts, maps/reference/alert-types)
+    # document alert type *codes* (e.g. "HT.Y" for Heat Advisory) but not the
+    # literal `cat` string vocabulary. Only "heat" is confirmed against a live
+    # alert; the rest follow the same lowercase-noun pattern and should be
+    # spot-checked against real alerts as they occur.
+    attribute :alerts_always_show_categories, :string do
+      public? true
+      allow_nil? false
+
+      default "heat,flood,tornado,hurricane,tropical,tsunami,fire,wind,winter,freeze,coastal,marine"
+
       constraints allow_empty?: true
     end
 
