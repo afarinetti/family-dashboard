@@ -14,7 +14,8 @@ defmodule FamilyDashboard.Repo.Migrations.AddWeatherAlerts do
             column: :id,
             name: "weather_alerts_weather_reading_id_fkey",
             type: :uuid
-          ), null: false
+          ),
+          null: false
 
       add :updated_at, :utc_datetime_usec, null: false
       add :inserted_at, :utc_datetime_usec, null: false

@@ -5,6 +5,7 @@ priv/static/assets/
 
 # VCS / editor / tooling
 .git/
+.github/
 .gitignore
 .elixir_ls/
 .vscode/

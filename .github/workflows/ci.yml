@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same branch/PR so pushes don't queue up stale builds.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # create a GitHub Release + upload the tarball asset on tags
+  packages: write # push the image to ghcr.io
+
+env:
+  # Real floor is 1.19/OTP 28, not the `~> 1.17` in mix.exs — config/runtime.exs uses the
+  # `E` (:export) regex sigil modifier, which doesn't exist before Elixir 1.19/OTP 28 (see
+  # Containerfile). Testing on anything older would pass while shipping an unbootable release.
+  ELIXIR_VERSION: "1.19"
+  OTP_VERSION: "28"
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/family_dashboard
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+          version-type: loose
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-test-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-test-
+
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      # The `test` alias runs `ash.setup --quiet` first (create+migrate+seed the SQLite
+      # test DB) — exqlite statically compiles SQLite into its NIF, so no DB service
+      # container is needed here.
+      - run: mix test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+          version-type: loose
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-lint-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-lint-
+
+      - run: mix deps.get
+      - run: mix format --check-formatted
+      # CI-safe form of the `precommit` alias's `deps.unlock --unused` — reports unused
+      # lockfile entries without rewriting mix.lock out from under the commit.
+      - run: mix deps.unlock --check-unused
+
+  build:
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Only needed to push; skipped implicitly on PRs since login isn't required to build.
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Containerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Release tarball: extracted from the image we just pushed (docker cp), rather than
+      # a second `mix release`, so the download can never drift from what the container ships.
+      - name: Extract release tarball
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          docker create --name rel "${IMAGE_NAME}:${REF_NAME}"
+          mkdir -p release-out
+          docker cp rel:/app/. release-out/
+          docker rm rel
+          tar -C release-out -czf "family_dashboard-${REF_NAME}-linux-x86_64.tar.gz" .
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: family_dashboard-*.tar.gz

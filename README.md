@@ -154,7 +154,7 @@ just seed          # re-run priv/repo/seeds.exs
 ## Deployment
 
 This project is set up to run as a container on an Ubuntu Core kiosk device,
-with images built by GitLab CI and published to GitHub Container Registry. See
+with images built by GitHub Actions and published to GitHub Container Registry. See
 [`deploy/README.md`](deploy/README.md) for the full runbook, including
 first-boot setup, updating, backups, and troubleshooting.
 

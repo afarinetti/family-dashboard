@@ -2,7 +2,7 @@
 
 This runbook covers deploying family_dashboard as a container to an **Ubuntu Core**
 kiosk device (a fixed 27" wall monitor in portrait, 1080×1920), with the image
-built by GitLab CI and published to GitHub Container Registry (ghcr.io).
+built by GitHub Actions and published to GitHub Container Registry (ghcr.io).
 
 ## Why this shape
 
@@ -29,22 +29,18 @@ built by GitLab CI and published to GitHub Container Registry (ghcr.io).
 
 ## One-time setup
 
-### 1. GitLab CI → ghcr.io
+### 1. GitHub Actions → ghcr.io
 
-In your GitLab project, go to **Settings → CI/CD → Variables** and add (both
-**masked**):
+No setup needed — `.github/workflows/ci.yml` authenticates to `ghcr.io` with the
+repo's built-in `GITHUB_TOKEN` (scoped via the workflow's `packages: write`
+permission), so there are no PAT/repo secrets to configure.
 
-| Variable | Value |
-|---|---|
-| `GHCR_USER` | Your GitHub username or org that will own the package |
-| `GHCR_TOKEN` | A GitHub PAT with `write:packages` (+ `read:packages`) scope |
-
-Push to `main` (or a tag) — the `build` job in `.gitlab-ci.yml` builds the
-image with `buildah` and pushes `ghcr.io/<GHCR_USER>/family_dashboard:latest`
-(plus a commit-SHA tag, and a matching tag on git tags). Set the package
-visibility to **Public** on GitHub (Packages tab) so the device can pull
-without authenticating — the image carries no secrets; those are injected at
-container runtime.
+Push to `main` (or a `v*` tag) — the `build` job builds the image with `docker
+buildx` and pushes `ghcr.io/<owner>/family_dashboard:latest` (plus a commit-SHA
+tag, and a matching tag on git tags; tag pushes also attach a release tarball
+to a GitHub Release). Set the package visibility to **Public** on GitHub
+(Packages tab) so the device can pull without authenticating — the image
+carries no secrets; those are injected at container runtime.
 
 ### 2. On the device: install Docker + the app
 

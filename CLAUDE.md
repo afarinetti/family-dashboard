@@ -150,8 +150,9 @@ Backups (`FamilyDashboard.Backup`) write a daily JSON snapshot to
 
 Ships as a container to an **Ubuntu Core** kiosk device via the Canonical
 `docker` snap (not Podman/Quadlet — strict confinement on Core breaks both).
-GitLab CI (`.gitlab-ci.yml`) builds with `buildah` and pushes to
-`ghcr.io/<org>/family_dashboard`. Persistence is a **named Docker volume**,
+GitHub Actions (`.github/workflows/ci.yml`) builds with `docker buildx` and pushes to
+`ghcr.io/<org>/family_dashboard` using the built-in `GITHUB_TOKEN` — no PAT/repo
+secrets required. Persistence is a **named Docker volume**,
 never a host bind-mount (arbitrary bind-mount paths silently fail on
 strictly-confined Core snaps). Releases run migrations automatically at boot
 whenever `RELEASE_NAME` is set (see `skip_migrations?/0` in
