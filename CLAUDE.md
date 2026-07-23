@@ -150,9 +150,15 @@ Backups (`FamilyDashboard.Backup`) write a daily JSON snapshot to
 
 Ships as a container to an **Ubuntu Core** kiosk device via the Canonical
 `docker` snap (not Podman/Quadlet — strict confinement on Core breaks both).
-GitHub Actions (`.github/workflows/ci.yml`) builds with `docker buildx` and pushes to
-`ghcr.io/<org>/family_dashboard` using the built-in `GITHUB_TOKEN` — no PAT/repo
-secrets required. Persistence is a **named Docker volume**,
+The fleet includes **arm64** hardware (e.g. a Raspberry Pi), so the pushed
+image must be a multi-platform manifest list. GitHub Actions
+(`.github/workflows/ci.yml`) builds each platform natively — no QEMU — using
+GitHub's free (public-repo) `ubuntu-24.04-arm` runner alongside the standard
+amd64 one; a `build` matrix job pushes each platform by digest, then a
+`publish` job merges both digests into one manifest list via `docker buildx
+imagetools create` and pushes to `ghcr.io/<org>/family_dashboard` using the
+built-in `GITHUB_TOKEN` — no PAT/repo secrets required. Persistence is a
+**named Docker volume**,
 never a host bind-mount (arbitrary bind-mount paths silently fail on
 strictly-confined Core snaps). Releases run migrations automatically at boot
 whenever `RELEASE_NAME` is set (see `skip_migrations?/0` in
