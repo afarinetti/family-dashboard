@@ -403,7 +403,8 @@ defmodule FamilyDashboardWeb.DashboardLive do
     events_by_date =
       from
       |> Dashboard.events_in_window!(to)
-      |> Enum.group_by(&event_date(&1, tz))
+      |> Enum.flat_map(&event_occurrence_dates(&1, tz))
+      |> Enum.group_by(fn {date, _event} -> date end, fn {_date, event} -> event end)
 
     now = socket.assigns.now
 
@@ -468,6 +469,18 @@ defmodule FamilyDashboardWeb.DashboardLive do
 
   defp event_date(%{starts_at: starts_at}, tz) do
     starts_at |> DateTime.shift_zone!(tz) |> DateTime.to_date()
+  end
+
+  # Every {date, event} pair an event should appear under — a single pair for
+  # a one-day event, or one pair per spanned day for a genuinely multi-day
+  # event (each rendered with its own "(Day X of Y)" progress via
+  # event_day_progress/3). Previously this bucketed each event under only its
+  # start date, so a multi-day event never showed up on its later days.
+  defp event_occurrence_dates(event, tz) do
+    case event_inclusive_date_range(event, tz) do
+      nil -> [{event_date(event, tz), event}]
+      {start_date, end_date} -> Enum.map(Date.range(start_date, end_date), &{&1, event})
+    end
   end
 
   @impl true

@@ -286,6 +286,27 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     assert html =~ "(Day 1 of 4)"
   end
 
+  test "shows a multi-day all-day event under every day it spans, not just the first", %{
+    conn: conn
+  } do
+    day = Date.add(Date.utc_today(), 1)
+    calendar = Dashboard.create_calendar!(%{name: "Family", ical_url: "https://x/cal.ics"})
+
+    Dashboard.create_event!(%{
+      calendar_id: calendar.id,
+      uid: "e1",
+      title: "Camp week",
+      all_day: true,
+      starts_at: DateTime.new!(day, ~T[00:00:00], "Etc/UTC"),
+      ends_at: DateTime.new!(Date.add(day, 2), ~T[00:00:00], "Etc/UTC")
+    })
+
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    assert html =~ "(Day 1 of 2)"
+    assert html =~ "(Day 2 of 2)"
+  end
+
   test "live-updates the agenda when an events broadcast arrives", %{conn: conn} do
     {:ok, live, _html} = live(conn, ~p"/")
     refute render(live) =~ "Piano lesson"
