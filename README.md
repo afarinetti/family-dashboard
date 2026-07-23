@@ -162,3 +162,7 @@ first-boot setup, updating, backups, and troubleshooting.
 
 - Phoenix: https://www.phoenixframework.org/, https://phoenix.hexdocs.pm
 - Ash Framework: https://ash-hq.org, https://hexdocs.pm/ash
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
