@@ -307,6 +307,31 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     assert html =~ "(Day 2 of 2)"
   end
 
+  test "a multi-day event's occurrence expansion is clamped to the agenda window", %{conn: conn} do
+    day = Date.add(Date.utc_today(), 1)
+    calendar = Dashboard.create_calendar!(%{name: "Family", ical_url: "https://x/cal.ics"})
+
+    # An untrusted iCal feed can supply a bogus/far-future DTEND. Without
+    # clamping the occurrence expansion to the agenda window (see
+    # event_occurrence_dates/4), this would enumerate millions of dates —
+    # observed at ~1.4s for a similar span — even though only ~8 are ever
+    # rendered. 500ms is generous headroom above the clamped (near-instant)
+    # cost while still well under what an unclamped expansion would take.
+    Dashboard.create_event!(%{
+      calendar_id: calendar.id,
+      uid: "e1",
+      title: "Camp week",
+      all_day: true,
+      starts_at: DateTime.new!(day, ~T[00:00:00], "Etc/UTC"),
+      ends_at: DateTime.new!(~D[9999-12-31], ~T[00:00:00], "Etc/UTC")
+    })
+
+    {elapsed_us, {:ok, _live, html}} = :timer.tc(fn -> live(conn, ~p"/") end)
+
+    assert html =~ "Camp week"
+    assert elapsed_us < 500_000
+  end
+
   test "live-updates the agenda when an events broadcast arrives", %{conn: conn} do
     {:ok, live, _html} = live(conn, ~p"/")
     refute render(live) =~ "Piano lesson"
