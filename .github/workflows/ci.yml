@@ -84,6 +84,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The kiosk fleet includes arm64 devices (e.g. a Raspberry Pi), so the pushed
+      # manifest list must cover both platforms — QEMU lets the single amd64 runner
+      # emulate the arm64 build rather than requiring a native arm64 runner.
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - uses: docker/setup-buildx-action@v3
 
       # Only needed to push; skipped implicitly on PRs since login isn't required to build.
@@ -107,6 +114,7 @@ jobs:
         with:
           context: .
           file: ./Containerfile
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -115,12 +123,15 @@ jobs:
 
       # Release tarball: extracted from the image we just pushed (docker cp), rather than
       # a second `mix release`, so the download can never drift from what the container ships.
+      # `${IMAGE_NAME}:${REF_NAME}` is now a multi-platform manifest list; pin --platform so
+      # this always extracts the amd64 variant regardless of the runner's own architecture
+      # (the ERTS binaries bundled in the release are architecture-specific).
       - name: Extract release tarball
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           REF_NAME: ${{ github.ref_name }}
         run: |
-          docker create --name rel "${IMAGE_NAME}:${REF_NAME}"
+          docker create --name rel --platform linux/amd64 "${IMAGE_NAME}:${REF_NAME}"
           mkdir -p release-out
           docker cp rel:/app/. release-out/
           docker rm rel
