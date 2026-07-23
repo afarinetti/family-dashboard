@@ -395,15 +395,20 @@ defmodule FamilyDashboardWeb.DashboardLive do
     last = Date.add(today, @agenda_days)
 
     # Over-fetch a day on each side (timed events near midnight straddle UTC
-    # dates); the correct per-event date is computed in event_date/2 and then
-    # filtered to [today, last].
-    from = DateTime.new!(Date.add(today, -1), ~T[00:00:00], "Etc/UTC")
-    to = DateTime.new!(Date.add(last, 1), ~T[23:59:59], "Etc/UTC")
+    # dates); each event's occurrence date(s) are computed in
+    # event_occurrence_dates/4 (one date for a single-day event, one per
+    # spanned day for a multi-day event, clamped to this same window) and
+    # any date outside [today, last] is dropped below.
+    window_start = Date.add(today, -1)
+    window_end = Date.add(last, 1)
+    from = DateTime.new!(window_start, ~T[00:00:00], "Etc/UTC")
+    to = DateTime.new!(window_end, ~T[23:59:59], "Etc/UTC")
 
     events_by_date =
       from
       |> Dashboard.events_in_window!(to)
-      |> Enum.group_by(&event_date(&1, tz))
+      |> Enum.flat_map(&event_occurrence_dates(&1, tz, window_start, window_end))
+      |> Enum.group_by(fn {date, _event} -> date end, fn {_date, event} -> event end)
 
     now = socket.assigns.now
 
@@ -468,6 +473,34 @@ defmodule FamilyDashboardWeb.DashboardLive do
 
   defp event_date(%{starts_at: starts_at}, tz) do
     starts_at |> DateTime.shift_zone!(tz) |> DateTime.to_date()
+  end
+
+  # Every {date, event} pair an event should appear under — a single pair for
+  # a one-day event, or one pair per spanned day for a genuinely multi-day
+  # event (each rendered with its own "(Day X of Y)" progress via
+  # event_day_progress/3). Previously this bucketed each event under only its
+  # start date, so a multi-day event never showed up on its later days.
+  #
+  # The spanned range is clamped to [window_start, window_end] before
+  # expanding: an event's *start* is bounded by the fetch window (see
+  # load_events/1), but its *end* isn't (an untrusted iCal feed could supply
+  # a far-future or bogus DTEND), so an unclamped Date.range could generate
+  # an unbounded list even though only dates in this window are ever read.
+  defp event_occurrence_dates(event, tz, window_start, window_end) do
+    case event_inclusive_date_range(event, tz) do
+      nil ->
+        [{event_date(event, tz), event}]
+
+      {start_date, end_date} ->
+        clamped_start = Enum.max([start_date, window_start], Date)
+        clamped_end = Enum.min([end_date, window_end], Date)
+
+        if Date.compare(clamped_start, clamped_end) != :gt do
+          Enum.map(Date.range(clamped_start, clamped_end), &{&1, event})
+        else
+          []
+        end
+    end
   end
 
   @impl true
