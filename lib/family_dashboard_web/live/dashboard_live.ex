@@ -356,12 +356,14 @@ defmodule FamilyDashboardWeb.DashboardLive do
     alerts = if weather, do: weather.alerts, else: []
 
     active =
-      Enum.filter(alerts, fn alert ->
+      alerts
+      |> Enum.filter(fn alert ->
         in_alert_window?(alert, now) and
           alert.category not in hidden_categories(setting.alerts_hidden_categories) and
           (severity_rank(alert.severity) >= severity_rank(setting.alerts_min_severity) or
              alert.category in always_show_categories(setting.alerts_always_show_categories))
       end)
+      |> Enum.sort_by(&{-severity_rank(&1.severity), expiry_sort_key(&1.expires_at)})
 
     assign(socket, :active_alerts, active)
   end
@@ -644,18 +646,12 @@ defmodule FamilyDashboardWeb.DashboardLive do
                   <:subtitle>{length(@active_alerts)}</:subtitle>
                 </.card_title>
                 <div class="flex flex-col gap-2">
-                  <div
+                  <.weather_alert
                     :for={alert <- @active_alerts}
-                    class={"alert #{severity_color(alert.severity)} flex-col items-start gap-0.5 py-2"}
-                  >
-                    <div class="flex items-baseline justify-between gap-2 w-full">
-                      <span class="font-semibold">{alert.name}</span>
-                      <span class="text-sm opacity-80 shrink-0">{alert_until(alert.expires_at, @tz)}</span>
-                    </div>
-                    <p :if={@setting.alerts_show_body && alert.body} class="text-sm opacity-90">
-                      {truncate_body(alert.body)}
-                    </p>
-                  </div>
+                    alert={alert}
+                    tz={@tz}
+                    show_body={@setting.alerts_show_body}
+                  />
                 </div>
               </div>
             </section>
@@ -805,6 +801,40 @@ defmodule FamilyDashboardWeb.DashboardLive do
         {render_slot(@subtitle)}
       </span>
     </h2>
+    """
+  end
+
+  # A single weather alert row. Visual weight escalates with severity so a
+  # room-distance glance can triage at a look: minor/moderate stay as a
+  # softly tinted card with a colored left bar, while severe/extreme switch
+  # to a bold solid-color fill (and extreme/emergency adds a slow pulse) so
+  # the genuinely dangerous alerts visually outrank the merely informative
+  # ones instead of all four tiers reading as "the same card, different hue."
+  attr :alert, :map, required: true
+  attr :tz, :string, required: true
+  attr :show_body, :boolean, required: true
+
+  defp weather_alert(assigns) do
+    ~H"""
+    <div class={[
+      "rounded-box border-l-4 px-3 py-2.5 flex flex-col gap-1",
+      alert_tone(@alert.severity),
+      alert_pulse(@alert)
+    ]}>
+      <div class="flex items-center gap-2">
+        <.icon name={alert_icon(@alert.severity)} class="size-5 shrink-0" />
+        <span class="font-bold leading-tight grow">{@alert.name}</span>
+        <span class={["badge badge-sm border-none shrink-0", alert_badge(@alert.severity)]}>
+          {severity_label(@alert.severity)}
+        </span>
+      </div>
+      <div class="pl-7 flex flex-col gap-0.5">
+        <span class="text-sm opacity-80">{alert_until(@alert.expires_at, @tz)}</span>
+        <p :if={@show_body && @alert.body} class="text-sm opacity-90">
+          {truncate_body(@alert.body)}
+        </p>
+      </div>
+    </div>
     """
   end
 
@@ -1069,17 +1099,50 @@ defmodule FamilyDashboardWeb.DashboardLive do
   defp severity_rank("extreme"), do: 4
   defp severity_rank(_), do: 0
 
-  # A full literal daisyUI semantic class per severity tier — never built via
-  # string interpolation (e.g. "alert-#{token}"), since Tailwind's content
-  # scan only sees classes that appear as literal strings in source (the same
+  # Sort key for expires_at within a severity tier: soonest-ending first, so
+  # the most time-critical alert of a given severity surfaces at the top.
+  # DateTime structs don't sort correctly under plain term ordering, so this
+  # converts to a unix integer; alerts with no known end time (nil) sort
+  # last within their tier rather than crashing the comparison.
+  defp expiry_sort_key(nil), do: :infinity
+  defp expiry_sort_key(expires_at), do: DateTime.to_unix(expires_at, :microsecond)
+
+  # Full literal daisyUI semantic classes (and literal heroicons names) per
+  # severity tier — never built via string interpolation (e.g. "bg-#{token}"
+  # or "hero-#{name}"), since Tailwind's content scan and the heroicons
+  # plugin only see names that appear as literal strings in source (the same
   # constraint @color_shade_hex exists to work around for the agenda's
   # calendar colors, solved here by pattern-matching hardcoded literals
-  # instead of an allowlist map, since daisyUI's semantic tokens are a small
-  # fixed set).
-  defp severity_color("extreme"), do: "alert-error"
-  defp severity_color("severe"), do: "alert-warning"
-  defp severity_color("moderate"), do: "alert-info"
-  defp severity_color(_), do: "alert-neutral"
+  # instead of an allowlist map, since the severity tiers are a small fixed
+  # set). Visual weight escalates with severity: minor/moderate get a soft
+  # tint, severe/extreme get a bold solid fill so they visually outrank the
+  # merely informative tiers.
+  defp alert_tone("extreme"), do: "bg-error text-error-content border-error-content/40"
+  defp alert_tone("severe"), do: "bg-warning text-warning-content border-warning-content/40"
+  defp alert_tone("moderate"), do: "bg-info/15 text-base-content border-info"
+  defp alert_tone(_), do: "bg-base-200 text-base-content border-base-content/25"
+
+  defp alert_badge("extreme"), do: "bg-error-content/20 text-error-content"
+  defp alert_badge("severe"), do: "bg-warning-content/20 text-warning-content"
+  defp alert_badge("moderate"), do: "badge-info"
+  defp alert_badge(_), do: "badge-neutral"
+
+  defp alert_icon("extreme"), do: "hero-exclamation-triangle-solid"
+  defp alert_icon("severe"), do: "hero-exclamation-triangle-solid"
+  defp alert_icon("moderate"), do: "hero-exclamation-circle"
+  defp alert_icon(_), do: "hero-information-circle"
+
+  defp severity_label("extreme"), do: "EXTREME"
+  defp severity_label("severe"), do: "SEVERE"
+  defp severity_label("moderate"), do: "MODERATE"
+  defp severity_label(_), do: "MINOR"
+
+  # A slow, soft pulse for the alerts that most warrant an immediate glance —
+  # extreme severity or the provider's own emergency flag — so the rarest,
+  # most dangerous alerts draw the eye without becoming an alarming strobe.
+  defp alert_pulse(%{severity: "extreme"}), do: "animate-throb"
+  defp alert_pulse(%{emergency: true}), do: "animate-throb"
+  defp alert_pulse(_), do: nil
 
   defp alert_until(nil, _tz), do: nil
 

@@ -110,11 +110,24 @@
 @theme {
   --animate-blink: blink 1s steps(1, end) infinite;
   --animate-marquee: marquee 30s linear infinite;
+  --animate-throb: throb 2.2s ease-in-out infinite;
 }
 
 @keyframes blink {
   0%, 49% { opacity: 0.55; }
   50%, 100% { opacity: 0; }
+}
+
+/* A slow, soft glow-pulse for the rare alert that most warrants an immediate
+   glance (extreme severity or the provider's emergency flag — see
+   alert_pulse/1 in dashboard_live.ex). Pulses box-shadow rather than opacity
+   or scale so it reads as "this card is glowing," not a jarring strobe or a
+   layout-shifting resize. Uses currentColor so the glow automatically
+   matches each severity tile's own text/border color instead of a single
+   hardcoded hue. */
+@keyframes throb {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 45%, transparent); }
+  50% { box-shadow: 0 0 0 6px transparent; }
 }
 
 /* The bottom news ticker's continuous scroll. Duration is set inline per-render

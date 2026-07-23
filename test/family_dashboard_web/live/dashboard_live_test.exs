@@ -406,6 +406,7 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
 
     assert html =~ "Weather Alerts"
     assert html =~ "Severe Thunderstorm Warning"
+    assert html =~ "SEVERE"
   end
 
   test "hides the alerts card when the alert is below the configured severity threshold", %{
