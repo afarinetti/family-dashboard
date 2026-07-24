@@ -45,16 +45,23 @@ carries no secrets; those are injected at container runtime.
 ### 2. On the device: install Docker + the app
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/afarinetti/family-dashboard/main/deploy/core/family_dashboard.sh -o family_dashboard.sh
+chmod +x family_dashboard.sh
 export FAMILY_DASHBOARD_IMAGE=ghcr.io/<your-org>/family_dashboard:latest
-./deploy/core/install.sh
+./family_dashboard.sh install
 ```
 
-This installs the `docker` snap, creates the `family_dashboard_data` volume,
+No git clone required — `family_dashboard.sh` is fully self-contained. It
+installs the `docker` snap, creates the `family_dashboard_data` volume,
 prompts you (via the generated `~/family_dashboard.env`) to set
 `SETTINGS_PASSWORD` (and optionally weather API keys), generates
 `SECRET_KEY_BASE` for you, and starts the container with
 `--restart always`. It finishes by seeding the singleton `Setting` row (see
 **First-boot seed** below) and printing the URL to check.
+
+Once installed, `family_dashboard.sh start|stop|restart|status|logs|update|uninstall`
+covers the rest of the lifecycle — run `./family_dashboard.sh help` for the
+full list.
 
 Verify: `docker logs family_dashboard` should show migrations running, then
 Bandit listening. `curl http://localhost:4000/` should return 200 with no
@@ -81,8 +88,8 @@ display should show the dashboard within a minute or so of boot.
 after a reboot (rare, but `--restart always` behavior under confined-snap
 dockerd hasn't been exhaustively verified), the fallback is to wrap the
 `docker run` in a small strict "application snap" with a `daemon: simple`
-service — see the comment in `deploy/core/install.sh`'s history / ask for
-help; this is more setup than most single-device deployments need.
+service — ask for help if needed; this is more setup than most single-device
+deployments need.
 
 ## Updating
 
@@ -90,7 +97,7 @@ After CI publishes a new image:
 
 ```sh
 export FAMILY_DASHBOARD_IMAGE=ghcr.io/<your-org>/family_dashboard:latest
-./deploy/core/update.sh
+./family_dashboard.sh update
 ```
 
 This pulls `latest` and recreates the container. The `family_dashboard_data`
@@ -105,7 +112,7 @@ Releases don't run `priv/repo/seeds.exs` automatically, and the singleton
 `FamilyDashboard.Heartbeat`) only comes from that seed file. Without it the
 app still boots fine (the heartbeat has hardcoded fallback intervals), but
 weather stays blank and the greeting is empty. `/ops` **cannot** create this
-row — its form only renders once a `Setting` already exists. `install.sh` runs
+row — its form only renders once a `Setting` already exists. `family_dashboard.sh install` runs
 the idempotent seed automatically; to re-run it manually:
 
 ```sh
