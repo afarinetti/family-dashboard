@@ -562,7 +562,12 @@ defmodule FamilyDashboardWeb.DashboardLive do
                 <div :if={@weather} class="flex flex-col gap-1">
                   <div class="flex items-center justify-between gap-3">
                     <div class="flex items-center gap-3">
-                      <.weather_icon variant={:animated} token={@weather.icon} class="w-20 h-20" />
+                      <.weather_icon
+                        id="weather-current"
+                        variant={:animated}
+                        token={@weather.icon}
+                        class="w-20 h-20"
+                      />
                       <p class="text-7xl font-bold tabular-nums">{round_temp(@weather.temp)}°</p>
                     </div>
                     <div class="text-right shrink-0">
@@ -614,7 +619,12 @@ defmodule FamilyDashboardWeb.DashboardLive do
                         @tz
                       )}</span>
                     </span>
-                    <.weather_icon variant={:static} token={hour.icon} class="w-8 h-8 mx-auto" />
+                    <.weather_icon
+                      id={"weather-hourly-#{DateTime.to_unix(hour.forecast_time)}"}
+                      variant={:static}
+                      token={hour.icon}
+                      class="w-8 h-8 mx-auto"
+                    />
                     <span class="text-lg font-bold text-right tabular-nums">{round_temp(hour.temp)}°</span>
                     <span class="relative h-[7px] rounded-full bg-base-300">
                       <span
@@ -649,7 +659,12 @@ defmodule FamilyDashboardWeb.DashboardLive do
                     class="grid grid-cols-[3.5rem_2.125rem_2.375rem_1fr_2.375rem_2.625rem] items-center gap-2 min-h-[2rem]"
                   >
                     <span class="text-lg font-semibold">{day_short_label(day.forecast_date, @today)}</span>
-                    <.weather_icon variant={:static} token={day.icon} class="w-8 h-8 mx-auto" />
+                    <.weather_icon
+                      id={"weather-daily-#{DateTime.to_unix(day.forecast_date)}"}
+                      variant={:static}
+                      token={day.icon}
+                      class="w-8 h-8 mx-auto"
+                    />
                     <span class="text-lg text-base-content/70 text-right tabular-nums">{round_temp(
                       day.low
                     )}°</span>
