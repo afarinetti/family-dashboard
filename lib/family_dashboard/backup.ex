@@ -64,6 +64,45 @@ defmodule FamilyDashboard.Backup do
   end
 
   @doc """
+  Lists `.json` backups in `backup_dir/0` as `%{filename, mtime}`, newest
+  first. Returns `[]` if the directory doesn't exist yet (e.g. no backup has
+  ever been written).
+  """
+  @spec list_backups() :: [%{filename: String.t(), mtime: DateTime.t()}]
+  def list_backups do
+    dir = backup_dir()
+
+    case File.ls(dir) do
+      {:ok, files} ->
+        files
+        |> Enum.filter(&String.ends_with?(&1, ".json"))
+        |> Enum.map(&%{filename: &1, mtime: file_mtime(Path.join(dir, &1))})
+        |> Enum.sort_by(& &1.mtime, {:desc, DateTime})
+
+      {:error, _reason} ->
+        []
+    end
+  end
+
+  @doc """
+  Reads a backup file by name from `backup_dir/0`. `filename` is reduced to
+  its basename before joining, so a path-traversal attempt (`../../etc/passwd`)
+  can only ever resolve to a file directly inside `backup_dir/0`.
+  """
+  @spec read_backup(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def read_backup(filename) do
+    path = Path.join(backup_dir(), Path.basename(filename))
+    File.read(path)
+  end
+
+  defp file_mtime(path) do
+    case File.stat(path, time: :posix) do
+      {:ok, %File.Stat{mtime: mtime}} -> DateTime.from_unix!(mtime)
+      {:error, _reason} -> DateTime.utc_now()
+    end
+  end
+
+  @doc """
   Restores calendars (upsert by id) and the setting (update-or-create) from a
   backup JSON string. Auto-exports the *current* state to disk first, as a
   safety net, before making any change — pass `skip_safety_export: true` to

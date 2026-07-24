@@ -41,6 +41,60 @@ defmodule FamilyDashboard.BackupTest do
     end
   end
 
+  describe "list_backups/0" do
+    test "returns [] when the backup dir doesn't exist yet" do
+      original = Application.get_env(:family_dashboard, :backup_dir)
+      Application.put_env(:family_dashboard, :backup_dir, @tmp_dir)
+      on_exit(fn -> Application.put_env(:family_dashboard, :backup_dir, original) end)
+
+      assert Backup.list_backups() == []
+    end
+
+    test "lists only .json files, newest first" do
+      original = Application.get_env(:family_dashboard, :backup_dir)
+      Application.put_env(:family_dashboard, :backup_dir, @tmp_dir)
+      on_exit(fn -> Application.put_env(:family_dashboard, :backup_dir, original) end)
+
+      File.mkdir_p!(@tmp_dir)
+      File.write!(Path.join(@tmp_dir, "older.json"), "{}")
+      File.touch!(Path.join(@tmp_dir, "older.json"), {{2020, 1, 1}, {0, 0, 0}})
+      File.write!(Path.join(@tmp_dir, "newer.json"), "{}")
+      File.touch!(Path.join(@tmp_dir, "newer.json"), {{2024, 1, 1}, {0, 0, 0}})
+      File.write!(Path.join(@tmp_dir, "ignored.txt"), "nope")
+
+      assert [%{filename: "newer.json"}, %{filename: "older.json"}] = Backup.list_backups()
+    end
+  end
+
+  describe "read_backup/1" do
+    test "reads a file from the configured backup dir by basename" do
+      original = Application.get_env(:family_dashboard, :backup_dir)
+      Application.put_env(:family_dashboard, :backup_dir, @tmp_dir)
+      on_exit(fn -> Application.put_env(:family_dashboard, :backup_dir, original) end)
+
+      File.mkdir_p!(@tmp_dir)
+      File.write!(Path.join(@tmp_dir, "backup.json"), ~s({"ok":true}))
+
+      assert {:ok, ~s({"ok":true})} = Backup.read_backup("backup.json")
+    end
+
+    test "reduces a path-traversal attempt to its basename, staying inside backup_dir" do
+      original = Application.get_env(:family_dashboard, :backup_dir)
+      Application.put_env(:family_dashboard, :backup_dir, @tmp_dir)
+      on_exit(fn -> Application.put_env(:family_dashboard, :backup_dir, original) end)
+
+      assert {:error, :enoent} = Backup.read_backup("../../etc/passwd")
+    end
+
+    test "returns an error for a missing file" do
+      original = Application.get_env(:family_dashboard, :backup_dir)
+      Application.put_env(:family_dashboard, :backup_dir, @tmp_dir)
+      on_exit(fn -> Application.put_env(:family_dashboard, :backup_dir, original) end)
+
+      assert {:error, :enoent} = Backup.read_backup("missing.json")
+    end
+  end
+
   describe "import_json/2" do
     test "upserts an existing calendar by id without touching its id" do
       cal = Dashboard.create_calendar!(%{name: "Family", ical_url: "https://old/cal.ics"})

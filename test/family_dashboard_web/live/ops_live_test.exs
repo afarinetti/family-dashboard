@@ -156,6 +156,94 @@ defmodule FamilyDashboardWeb.OpsLiveTest do
       assert html =~ "Choose a backup file first."
     end
 
+    test "lists server backups found in the backup dir", %{conn: conn} do
+      tmp = Path.join(System.tmp_dir!(), "ops_live_backup_test_list")
+      File.rm_rf!(tmp)
+      File.mkdir_p!(tmp)
+      File.write!(Path.join(tmp, "family_dashboard_backup_test.json"), "{}")
+      original = Application.get_env(:family_dashboard, :backup_dir)
+      Application.put_env(:family_dashboard, :backup_dir, tmp)
+
+      on_exit(fn ->
+        File.rm_rf!(tmp)
+        Application.put_env(:family_dashboard, :backup_dir, original)
+      end)
+
+      {:ok, _live, html} = conn |> authed() |> live(~p"/ops")
+
+      assert html =~ "family_dashboard_backup_test.json"
+    end
+
+    test "request_restore_from_server then cancel_restore hides the confirm step", %{conn: conn} do
+      tmp = Path.join(System.tmp_dir!(), "ops_live_backup_test_server")
+      File.rm_rf!(tmp)
+      File.mkdir_p!(tmp)
+      File.write!(Path.join(tmp, "backup.json"), "{}")
+      original = Application.get_env(:family_dashboard, :backup_dir)
+      Application.put_env(:family_dashboard, :backup_dir, tmp)
+
+      on_exit(fn ->
+        File.rm_rf!(tmp)
+        Application.put_env(:family_dashboard, :backup_dir, original)
+      end)
+
+      {:ok, live, _html} = conn |> authed() |> live(~p"/ops")
+
+      html = render_click(live, "request_restore_from_server", %{"filename" => "backup.json"})
+      assert html =~ "Yes, overwrite"
+
+      html = render_click(live, "cancel_restore")
+      refute html =~ "Yes, overwrite"
+    end
+
+    test "restoring a server backup upserts calendars and flashes a summary", %{conn: conn} do
+      cal = Dashboard.create_calendar!(%{name: "Old", ical_url: "https://x/old.ics"})
+
+      tmp = Path.join(System.tmp_dir!(), "ops_live_backup_test_server_restore")
+      File.rm_rf!(tmp)
+      File.mkdir_p!(tmp)
+
+      backup =
+        Backup.export()
+        |> put_in(["calendars"], [
+          %{
+            "id" => cal.id,
+            "name" => "Restored",
+            "ical_url" => "https://x/old.ics",
+            "color" => nil,
+            "active" => true
+          }
+        ])
+        |> Jason.encode!()
+
+      File.write!(Path.join(tmp, "backup.json"), backup)
+      original = Application.get_env(:family_dashboard, :backup_dir)
+      Application.put_env(:family_dashboard, :backup_dir, tmp)
+
+      on_exit(fn ->
+        File.rm_rf!(tmp)
+        Application.put_env(:family_dashboard, :backup_dir, original)
+      end)
+
+      {:ok, live, _html} = conn |> authed() |> live(~p"/ops")
+
+      render_click(live, "request_restore_from_server", %{"filename" => "backup.json"})
+      html = render_click(live, "confirm_restore_from_server", %{"filename" => "backup.json"})
+
+      assert html =~ "Restored 1 calendar(s)"
+      assert Dashboard.get_calendar!(cal.id).name == "Restored"
+    end
+
+    test "confirming a server restore without matching the pending filename is rejected", %{
+      conn: conn
+    } do
+      {:ok, live, _html} = conn |> authed() |> live(~p"/ops")
+
+      html = render_click(live, "confirm_restore_from_server", %{"filename" => "backup.json"})
+
+      assert html =~ "Restore was not confirmed."
+    end
+
     test "restoring an uploaded backup upserts calendars and flashes a summary", %{conn: conn} do
       cal = Dashboard.create_calendar!(%{name: "Old", ical_url: "https://x/old.ics"})
 
