@@ -30,10 +30,21 @@ defmodule FamilyDashboardWeb.OpsLive do
 
     socket =
       socket
-      |> assign(pending_restore: nil, restore_error: nil, server_backups: Backup.list_backups())
+      |> assign(pending_restore: nil, restore_error: nil)
+      |> assign_server_backups()
       |> allow_upload(:backup, accept: ~w(.json), max_entries: 1)
 
     {:ok, socket}
+  end
+
+  defp assign_server_backups(socket) do
+    case Backup.list_backups() do
+      {:ok, backups} ->
+        assign(socket, server_backups: backups, server_backups_error: nil)
+
+      {:error, reason} ->
+        assign(socket, server_backups: [], server_backups_error: inspect(reason))
+    end
   end
 
   @impl true
@@ -187,7 +198,13 @@ defmodule FamilyDashboardWeb.OpsLive do
             <div class="divider">Restore from a server backup</div>
 
             <div class="max-h-64 overflow-y-auto rounded-box border border-base-300">
-              <p :if={@server_backups == []} class="text-sm text-base-content/70 p-4">
+              <p :if={@server_backups_error} class="text-error text-sm p-4">
+                Could not list server backups: {@server_backups_error}
+              </p>
+              <p
+                :if={!@server_backups_error && @server_backups == []}
+                class="text-sm text-base-content/70 p-4"
+              >
                 No backups found in {Backup.backup_dir()}.
               </p>
               <ul :if={@server_backups != []} class="list">
@@ -284,7 +301,7 @@ defmodule FamilyDashboardWeb.OpsLive do
         socket =
           socket
           |> put_flash(:info, "Backup saved to #{path}.")
-          |> assign(server_backups: Backup.list_backups())
+          |> assign_server_backups()
 
         {:noreply, socket}
 
@@ -349,11 +366,8 @@ defmodule FamilyDashboardWeb.OpsLive do
         socket =
           socket
           |> put_flash(:info, "Restored #{n} calendar(s) and the settings.")
-          |> assign(
-            pending_restore: nil,
-            restore_error: nil,
-            server_backups: Backup.list_backups()
-          )
+          |> assign(pending_restore: nil, restore_error: nil)
+          |> assign_server_backups()
           |> reload_status()
 
         {:noreply, socket}

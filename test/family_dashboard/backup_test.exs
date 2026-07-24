@@ -42,12 +42,12 @@ defmodule FamilyDashboard.BackupTest do
   end
 
   describe "list_backups/0" do
-    test "returns [] when the backup dir doesn't exist yet" do
+    test "returns {:ok, []} when the backup dir doesn't exist yet" do
       original = Application.get_env(:family_dashboard, :backup_dir)
       Application.put_env(:family_dashboard, :backup_dir, @tmp_dir)
       on_exit(fn -> Application.put_env(:family_dashboard, :backup_dir, original) end)
 
-      assert Backup.list_backups() == []
+      assert Backup.list_backups() == {:ok, []}
     end
 
     test "lists only .json files, newest first" do
@@ -62,7 +62,23 @@ defmodule FamilyDashboard.BackupTest do
       File.touch!(Path.join(@tmp_dir, "newer.json"), {{2024, 1, 1}, {0, 0, 0}})
       File.write!(Path.join(@tmp_dir, "ignored.txt"), "nope")
 
-      assert [%{filename: "newer.json"}, %{filename: "older.json"}] = Backup.list_backups()
+      assert {:ok, [%{filename: "newer.json"}, %{filename: "older.json"}]} =
+               Backup.list_backups()
+    end
+
+    test "returns {:error, reason} for a real listing failure, not an empty list" do
+      # A file where a directory is expected makes File.ls/1 fail with
+      # :enotdir — distinct from :enoent (directory just doesn't exist yet),
+      # which is treated as the benign "no backups written yet" case.
+      not_a_dir = Path.join(System.tmp_dir!(), "family_dashboard_backup_test_not_a_dir")
+      File.write!(not_a_dir, "oops")
+      on_exit(fn -> File.rm_rf!(not_a_dir) end)
+
+      original = Application.get_env(:family_dashboard, :backup_dir)
+      Application.put_env(:family_dashboard, :backup_dir, not_a_dir)
+      on_exit(fn -> Application.put_env(:family_dashboard, :backup_dir, original) end)
+
+      assert {:error, :enotdir} = Backup.list_backups()
     end
   end
 

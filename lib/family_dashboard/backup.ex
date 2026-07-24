@@ -65,22 +65,32 @@ defmodule FamilyDashboard.Backup do
 
   @doc """
   Lists `.json` backups in `backup_dir/0` as `%{filename, mtime}`, newest
-  first. Returns `[]` if the directory doesn't exist yet (e.g. no backup has
-  ever been written).
+  first. A missing directory (no backup has ever been written yet) is a
+  normal, expected state and returns `{:ok, []}` — any other `File.ls`
+  failure (permission denied, unmounted volume, ...) is a real problem and
+  is returned as `{:error, reason}` rather than silently looking identical
+  to "no backups exist".
   """
-  @spec list_backups() :: [%{filename: String.t(), mtime: DateTime.t()}]
+  @spec list_backups() ::
+          {:ok, [%{filename: String.t(), mtime: DateTime.t()}]} | {:error, term()}
   def list_backups do
     dir = backup_dir()
 
     case File.ls(dir) do
       {:ok, files} ->
-        files
-        |> Enum.filter(&String.ends_with?(&1, ".json"))
-        |> Enum.map(&%{filename: &1, mtime: file_mtime(Path.join(dir, &1))})
-        |> Enum.sort_by(& &1.mtime, {:desc, DateTime})
+        backups =
+          files
+          |> Enum.filter(&String.ends_with?(&1, ".json"))
+          |> Enum.map(&%{filename: &1, mtime: file_mtime(Path.join(dir, &1))})
+          |> Enum.sort_by(& &1.mtime, {:desc, DateTime})
 
-      {:error, _reason} ->
-        []
+        {:ok, backups}
+
+      {:error, :enoent} ->
+        {:ok, []}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -95,10 +105,14 @@ defmodule FamilyDashboard.Backup do
     File.read(path)
   end
 
+  # A stat failure (e.g. the file vanished between `File.ls/1` and here) is
+  # unverifiable — sink it to the bottom of the newest-first list with an
+  # epoch timestamp rather than defaulting to "now", which would instead
+  # promote an unverifiable file to the very top.
   defp file_mtime(path) do
     case File.stat(path, time: :posix) do
       {:ok, %File.Stat{mtime: mtime}} -> DateTime.from_unix!(mtime)
-      {:error, _reason} -> DateTime.utc_now()
+      {:error, _reason} -> ~U[1970-01-01 00:00:00Z]
     end
   end
 

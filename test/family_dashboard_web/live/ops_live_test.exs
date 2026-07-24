@@ -174,6 +174,23 @@ defmodule FamilyDashboardWeb.OpsLiveTest do
       assert html =~ "family_dashboard_backup_test.json"
     end
 
+    test "shows a distinct error when the backup dir can't be listed", %{conn: conn} do
+      not_a_dir = Path.join(System.tmp_dir!(), "ops_live_backup_test_not_a_dir")
+      File.write!(not_a_dir, "oops")
+      original = Application.get_env(:family_dashboard, :backup_dir)
+      Application.put_env(:family_dashboard, :backup_dir, not_a_dir)
+
+      on_exit(fn ->
+        File.rm_rf!(not_a_dir)
+        Application.put_env(:family_dashboard, :backup_dir, original)
+      end)
+
+      {:ok, _live, html} = conn |> authed() |> live(~p"/ops")
+
+      assert html =~ "Could not list server backups"
+      refute html =~ "No backups found"
+    end
+
     test "request_restore_from_server then cancel_restore hides the confirm step", %{conn: conn} do
       tmp = Path.join(System.tmp_dir!(), "ops_live_backup_test_server")
       File.rm_rf!(tmp)
