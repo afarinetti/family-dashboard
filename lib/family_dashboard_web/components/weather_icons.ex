@@ -47,13 +47,11 @@ defmodule FamilyDashboardWeb.WeatherIcons do
   for variant <- [:animated, :static], name <- @icon_files do
     path = Path.join([@vendor_dir, Atom.to_string(variant), "#{name}.svg"])
     @external_resource path
-    id_prefix = "mc-#{variant}-#{name}-"
 
-    # Pre-wrap as Phoenix.HTML-safe iodata at compile time, from vendored file
-    # content only (never user input), so the render path below just
-    # interpolates `@svg` directly — no `raw/1` call sits between untrusted
-    # data and the response.
-    safe_svg =
+    # A plain string, not yet Phoenix.HTML-safe: every rendered instance still
+    # needs its internal ids namespaced by the caller's `id` attr (see
+    # `weather_icon/1`) before it's safe to mark as trusted markup.
+    svg =
       path
       |> File.read!()
       |> then(
@@ -61,17 +59,8 @@ defmodule FamilyDashboardWeb.WeatherIcons do
           String.replace_trailing(tag, ">", " class=\"w-full h-full\">")
         end)
       )
-      # Every icon inlines its own <defs> (gradients, clip-paths) with Figma's
-      # bare numeric ids (e.g. id="paint0_linear_1858_8512"). Namespace them
-      # per (variant, name) so two *different* condition icons on the same
-      # page can never collide on a reused Figma id — the browser resolves
-      # url(#id) to the first matching element in the document, so a
-      # collision would silently render the wrong gradient/clip.
-      |> then(&Regex.replace(~r/\bid="([a-zA-Z0-9_]+)"/, &1, "id=\"#{id_prefix}\\1\""))
-      |> then(&Regex.replace(~r/url\(#([a-zA-Z0-9_]+)\)/, &1, "url(##{id_prefix}\\1)"))
-      |> Phoenix.HTML.raw()
 
-    defp svg_content(unquote(variant), unquote(name)), do: unquote(safe_svg)
+    defp svg_content(unquote(variant), unquote(name)), do: unquote(svg)
   end
 
   # Maps the provider-neutral condition token (see
@@ -99,20 +88,46 @@ defmodule FamilyDashboardWeb.WeatherIcons do
 
   ## Examples
 
-      <.weather_icon variant={:animated} token={@weather.icon} class="w-20 h-20" />
-      <.weather_icon variant={:static} token={hour.icon} class="w-8 h-8 mx-auto" />
+      <.weather_icon id="weather-current" variant={:animated} token={@weather.icon} class="w-20 h-20" />
+      <.weather_icon id={"weather-hourly-\#{DateTime.to_unix(hour.forecast_time)}"} variant={:static} token={hour.icon} class="w-8 h-8 mx-auto" />
   """
   attr :variant, :atom, required: true, values: [:animated, :static]
   attr :token, :string, default: nil, doc: "a Provider condition token, or nil for 'no data'"
   attr :class, :string, default: nil
 
+  attr :id, :string,
+    required: true,
+    doc: """
+    A stable identifier unique to this icon's position on the page (e.g.
+    "weather-hourly-\#{DateTime.to_unix(hour.forecast_time)}"), used to
+    namespace this instance's internal SVG element ids. Every vendored icon
+    reuses the same bare Figma ids for its gradients/clip-paths; the client's
+    DOM patcher matches/moves elements by id across a live patch, so two icon
+    instances sharing an id can have their rendered content swapped or
+    silently dropped — this only shows up on an already-connected,
+    long-running page (e.g. the kiosk's always-on tab), never on a fresh
+    disconnected mount, which is why it's easy to miss in testing. Must never
+    be derived from user input or third-party data — it's interpolated
+    directly into the trusted SVG markup below.
+    """
+
   def weather_icon(assigns) do
     file = icon_file(assigns.token)
+
+    scoped_svg =
+      assigns.variant
+      |> svg_content(file)
+      # [a-zA-Z0-9_-]: some icons' root <g> is id="<icon-slug>" (e.g.
+      # id="clear-day", id="partly-cloudy-day") — the hyphen must be in the
+      # character class or those ids silently fail to match and stay
+      # duplicated across every instance of that icon on the page.
+      |> then(&Regex.replace(~r/\bid="([a-zA-Z0-9_-]+)"/, &1, "id=\"#{assigns.id}-\\1\""))
+      |> then(&Regex.replace(~r/url\(#([a-zA-Z0-9_-]+)\)/, &1, "url(##{assigns.id}-\\1)"))
 
     assigns =
       assigns
       |> assign(:file, file)
-      |> assign(:svg, svg_content(assigns.variant, file))
+      |> assign(:svg, {:safe, scoped_svg})
 
     ~H"""
     <span data-weather-icon={@file} class={["inline-block", @class]}>{@svg}</span>
