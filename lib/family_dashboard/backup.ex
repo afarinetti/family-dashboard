@@ -73,6 +73,59 @@ defmodule FamilyDashboard.Backup do
   end
 
   @doc """
+  Lists `.json` backups in `backup_dir/0` as `%{filename, mtime}`, newest
+  first. A missing directory (no backup has ever been written yet) is a
+  normal, expected state and returns `{:ok, []}` — any other `File.ls`
+  failure (permission denied, unmounted volume, ...) is a real problem and
+  is returned as `{:error, reason}` rather than silently looking identical
+  to "no backups exist".
+  """
+  @spec list_backups() ::
+          {:ok, [%{filename: String.t(), mtime: DateTime.t()}]} | {:error, term()}
+  def list_backups do
+    dir = backup_dir()
+
+    case File.ls(dir) do
+      {:ok, files} ->
+        backups =
+          files
+          |> Enum.filter(&String.ends_with?(&1, ".json"))
+          |> Enum.map(&%{filename: &1, mtime: file_mtime(Path.join(dir, &1))})
+          |> Enum.sort_by(& &1.mtime, {:desc, DateTime})
+
+        {:ok, backups}
+
+      {:error, :enoent} ->
+        {:ok, []}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Reads a backup file by name from `backup_dir/0`. `filename` is reduced to
+  its basename before joining, so a path-traversal attempt (`../../etc/passwd`)
+  can only ever resolve to a file directly inside `backup_dir/0`.
+  """
+  @spec read_backup(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def read_backup(filename) do
+    path = Path.join(backup_dir(), Path.basename(filename))
+    File.read(path)
+  end
+
+  # A stat failure (e.g. the file vanished between `File.ls/1` and here) is
+  # unverifiable — sink it to the bottom of the newest-first list with an
+  # epoch timestamp rather than defaulting to "now", which would instead
+  # promote an unverifiable file to the very top.
+  defp file_mtime(path) do
+    case File.stat(path, time: :posix) do
+      {:ok, %File.Stat{mtime: mtime}} -> DateTime.from_unix!(mtime)
+      {:error, _reason} -> ~U[1970-01-01 00:00:00Z]
+    end
+  end
+
+  @doc """
   Restores calendars and news feeds (each upsert by id) and the setting
   (update-or-create) from a backup JSON string. Auto-exports the *current*
   state to disk first, as a safety net, before making any change — pass

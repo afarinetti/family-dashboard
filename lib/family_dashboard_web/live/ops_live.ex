@@ -30,10 +30,21 @@ defmodule FamilyDashboardWeb.OpsLive do
 
     socket =
       socket
-      |> assign(confirming_restore: false, restore_error: nil)
+      |> assign(pending_restore: nil, restore_error: nil)
+      |> assign_server_backups()
       |> allow_upload(:backup, accept: ~w(.json), max_entries: 1)
 
     {:ok, socket}
+  end
+
+  defp assign_server_backups(socket) do
+    case Backup.list_backups() do
+      {:ok, backups} ->
+        assign(socket, server_backups: backups, server_backups_error: nil)
+
+      {:error, reason} ->
+        assign(socket, server_backups: [], server_backups_error: inspect(reason))
+    end
   end
 
   @impl true
@@ -153,31 +164,89 @@ defmodule FamilyDashboardWeb.OpsLive do
               <.button phx-click="save_backup_to_disk">Save to disk now</.button>
             </div>
 
+            <div class="divider">Restore from an uploaded file</div>
+
             <form
               id="restore-form"
               phx-submit="confirm_restore"
               phx-change="validate_upload"
-              class="mt-4 flex flex-col gap-2"
+              class="flex flex-col gap-2"
             >
-              <.live_file_input upload={@uploads.backup} />
+              <.live_file_input
+                upload={@uploads.backup}
+                class="file-input file-input-bordered w-full"
+              />
               <p :for={err <- upload_errors(@uploads.backup)} class="text-error text-sm">
                 {error_to_string(err)}
               </p>
 
-              <div :if={!@confirming_restore}>
-                <.button type="button" phx-click="request_restore">Restore from file…</.button>
+              <div :if={@pending_restore != :upload}>
+                <.button type="button" phx-click="request_restore">
+                  Restore from uploaded file…
+                </.button>
               </div>
 
-              <div :if={@confirming_restore} class="alert alert-warning">
+              <div :if={@pending_restore == :upload} class="alert alert-warning">
                 <span>This overwrites current calendars and settings. A safety backup is saved first.</span>
                 <div class="flex gap-2">
                   <.button type="submit" variant="primary">Yes, overwrite</.button>
                   <.button type="button" phx-click="cancel_restore">Cancel</.button>
                 </div>
               </div>
-
-              <p :if={@restore_error} class="text-error text-sm">{@restore_error}</p>
             </form>
+
+            <div class="divider">Restore from a server backup</div>
+
+            <div class="max-h-64 overflow-y-auto rounded-box border border-base-300">
+              <p :if={@server_backups_error} class="text-error text-sm p-4">
+                Could not list server backups: {@server_backups_error}
+              </p>
+              <p
+                :if={!@server_backups_error && @server_backups == []}
+                class="text-sm text-base-content/70 p-4"
+              >
+                No backups found in {Backup.backup_dir()}.
+              </p>
+              <ul :if={@server_backups != []} class="list">
+                <li :for={backup <- @server_backups} class="list-row">
+                  <div class="list-col-grow">
+                    <div class="font-mono text-sm">{backup.filename}</div>
+                    <div class="text-sm text-base-content/70">
+                      saved {relative_time(backup.mtime)}
+                    </div>
+                  </div>
+
+                  <.button
+                    :if={@pending_restore != {:server, backup.filename}}
+                    phx-click="request_restore_from_server"
+                    phx-value-filename={backup.filename}
+                  >
+                    Restore this backup
+                  </.button>
+
+                  <div
+                    :if={@pending_restore == {:server, backup.filename}}
+                    class="alert alert-warning"
+                  >
+                    <span>
+                      Overwrite current calendars and settings with this backup? A safety backup is saved first.
+                    </span>
+                    <div class="flex gap-2">
+                      <.button
+                        phx-click="confirm_restore_from_server"
+                        phx-value-filename={backup.filename}
+                        variant="primary"
+                      >
+                        Yes, overwrite
+                      </.button>
+                      <.button phx-click="cancel_restore">Cancel</.button>
+                    </div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+
+            <p :if={@restore_error} class="text-error text-sm mt-2">{@restore_error}</p>
           </div>
         </section>
       </div>
@@ -229,7 +298,12 @@ defmodule FamilyDashboardWeb.OpsLive do
   def handle_event("save_backup_to_disk", _params, socket) do
     case Backup.export_json() |> Backup.write_to_disk() do
       {:ok, path} ->
-        {:noreply, put_flash(socket, :info, "Backup saved to #{path}.")}
+        socket =
+          socket
+          |> put_flash(:info, "Backup saved to #{path}.")
+          |> assign_server_backups()
+
+        {:noreply, socket}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Backup failed: #{inspect(reason)}")}
@@ -237,47 +311,69 @@ defmodule FamilyDashboardWeb.OpsLive do
   end
 
   def handle_event("request_restore", _params, socket) do
-    {:noreply, assign(socket, confirming_restore: true)}
+    {:noreply, assign(socket, pending_restore: :upload, restore_error: nil)}
+  end
+
+  def handle_event("request_restore_from_server", %{"filename" => filename}, socket) do
+    {:noreply, assign(socket, pending_restore: {:server, filename}, restore_error: nil)}
   end
 
   def handle_event("cancel_restore", _params, socket) do
-    {:noreply, assign(socket, confirming_restore: false, restore_error: nil)}
+    {:noreply, assign(socket, pending_restore: nil, restore_error: nil)}
   end
 
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
 
   def handle_event("confirm_restore", _params, socket) do
-    if socket.assigns.confirming_restore != true do
-      {:noreply, assign(socket, restore_error: "Restore was not confirmed.")}
-    else
-      do_confirm_restore(socket)
+    case socket.assigns.pending_restore do
+      :upload -> do_confirm_restore_from_upload(socket)
+      _ -> {:noreply, assign(socket, restore_error: "Restore was not confirmed.")}
     end
   end
 
-  defp do_confirm_restore(socket) do
+  def handle_event("confirm_restore_from_server", %{"filename" => filename}, socket) do
+    case socket.assigns.pending_restore do
+      {:server, ^filename} -> do_confirm_restore_from_server(socket, filename)
+      _ -> {:noreply, assign(socket, restore_error: "Restore was not confirmed.")}
+    end
+  end
+
+  defp do_confirm_restore_from_upload(socket) do
     entries =
       consume_uploaded_entries(socket, :backup, fn %{path: path}, _entry ->
         {:ok, File.read!(path)}
       end)
 
     case entries do
-      [json] ->
-        case Backup.import_json(json) do
-          {:ok, %{calendars_restored: n}} ->
-            socket =
-              socket
-              |> put_flash(:info, "Restored #{n} calendar(s) and the settings.")
-              |> assign(confirming_restore: false, restore_error: nil)
-              |> reload_status()
+      [json] -> apply_restore(socket, json)
+      [] -> {:noreply, assign(socket, restore_error: "Choose a backup file first.")}
+    end
+  end
 
-            {:noreply, socket}
+  defp do_confirm_restore_from_server(socket, filename) do
+    case Backup.read_backup(filename) do
+      {:ok, json} ->
+        apply_restore(socket, json)
 
-          {:error, reason} ->
-            {:noreply, assign(socket, restore_error: inspect(reason))}
-        end
+      {:error, reason} ->
+        {:noreply, assign(socket, restore_error: "Could not read backup: #{inspect(reason)}")}
+    end
+  end
 
-      [] ->
-        {:noreply, assign(socket, restore_error: "Choose a backup file first.")}
+  defp apply_restore(socket, json) do
+    case Backup.import_json(json) do
+      {:ok, %{calendars_restored: n}} ->
+        socket =
+          socket
+          |> put_flash(:info, "Restored #{n} calendar(s) and the settings.")
+          |> assign(pending_restore: nil, restore_error: nil)
+          |> assign_server_backups()
+          |> reload_status()
+
+        {:noreply, socket}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, restore_error: inspect(reason))}
     end
   end
 

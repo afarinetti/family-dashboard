@@ -287,6 +287,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
 
     {:ok,
      socket
+     |> assign(app_version: app_version())
      |> assign_setting()
      |> assign_clock()
      |> load_weather()
@@ -294,6 +295,8 @@ defmodule FamilyDashboardWeb.DashboardLive do
      |> load_events()
      |> load_news_items()}
   end
+
+  defp app_version, do: Application.spec(:family_dashboard, :vsn) |> to_string()
 
   @impl true
   def handle_info(:tick, socket) do
@@ -523,7 +526,10 @@ defmodule FamilyDashboardWeb.DashboardLive do
     <Layouts.app flash={@flash}>
       <!-- Portrait wall display (1080w x 1920h): 40% left rail, 60% right column,
            full-width news ticker pinned to the bottom. -->
-      <div class="h-screen w-screen overflow-hidden bg-base-200 flex flex-col">
+      <div class="h-screen w-screen overflow-hidden bg-base-200 flex flex-col relative">
+        <span class="badge badge-ghost badge-sm absolute top-2 left-2 z-10 opacity-40 pointer-events-none">
+          v{@app_version}
+        </span>
         <div class="flex-1 min-h-0 p-3 flex flex-row gap-2.5">
           <!-- Left rail (40%): clock/date, weather, weather alerts -->
           <div class="w-[40%] shrink-0 flex flex-col gap-3 overflow-hidden">
