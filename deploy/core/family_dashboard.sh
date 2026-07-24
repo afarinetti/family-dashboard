@@ -2,9 +2,13 @@
 # Manages family_dashboard as a container on an Ubuntu Core kiosk device.
 # See deploy/README.md for the full runbook.
 #
-# Self-contained — curl this one file onto a bare device, no git clone needed:
+# Self-contained — a single file, no git clone needed on the device. But
+# don't curl/wget it directly onto the device: on Ubuntu Core those are
+# strictly-confined snaps that typically can't write to $HOME. Instead scp
+# it over from a machine that already has this repo cloned:
 #
-#   curl -fsSL https://raw.githubusercontent.com/afarinetti/family-dashboard/main/deploy/core/family_dashboard.sh -o family_dashboard.sh
+#   scp deploy/core/family_dashboard.sh <user>@<device-host>:~/family_dashboard.sh
+#   ssh <user>@<device-host>
 #   chmod +x family_dashboard.sh
 #   ./family_dashboard.sh install
 set -euo pipefail
