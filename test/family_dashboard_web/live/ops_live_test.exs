@@ -234,6 +234,70 @@ defmodule FamilyDashboardWeb.OpsLiveTest do
       assert Dashboard.get_calendar!(cal.id).name == "Restored"
     end
 
+    test "restoring a server backup refreshes the server-backups list", %{conn: conn} do
+      cal = Dashboard.create_calendar!(%{name: "Old", ical_url: "https://x/old.ics"})
+
+      tmp = Path.join(System.tmp_dir!(), "ops_live_backup_test_server_refresh")
+      File.rm_rf!(tmp)
+      File.mkdir_p!(tmp)
+
+      backup =
+        Backup.export()
+        |> put_in(["calendars"], [
+          %{
+            "id" => cal.id,
+            "name" => "Restored",
+            "ical_url" => "https://x/old.ics",
+            "color" => nil,
+            "active" => true
+          }
+        ])
+        |> Jason.encode!()
+
+      File.write!(Path.join(tmp, "backup.json"), backup)
+      original = Application.get_env(:family_dashboard, :backup_dir)
+      Application.put_env(:family_dashboard, :backup_dir, tmp)
+
+      on_exit(fn ->
+        File.rm_rf!(tmp)
+        Application.put_env(:family_dashboard, :backup_dir, original)
+      end)
+
+      {:ok, live, _html} = conn |> authed() |> live(~p"/ops")
+
+      # import_json/2 writes a safety-export of the pre-restore state into the
+      # same directory before restoring — the listing should pick that up
+      # without needing a manual page reload.
+      render_click(live, "request_restore_from_server", %{"filename" => "backup.json"})
+      html = render_click(live, "confirm_restore_from_server", %{"filename" => "backup.json"})
+
+      assert Enum.count(File.ls!(tmp)) > 1
+      assert html =~ "family_dashboard_backup_"
+    end
+
+    test "requesting a server restore then confirming the upload flow is rejected", %{
+      conn: conn
+    } do
+      tmp = Path.join(System.tmp_dir!(), "ops_live_backup_test_cross_flow")
+      File.rm_rf!(tmp)
+      File.mkdir_p!(tmp)
+      File.write!(Path.join(tmp, "backup.json"), "{}")
+      original = Application.get_env(:family_dashboard, :backup_dir)
+      Application.put_env(:family_dashboard, :backup_dir, tmp)
+
+      on_exit(fn ->
+        File.rm_rf!(tmp)
+        Application.put_env(:family_dashboard, :backup_dir, original)
+      end)
+
+      {:ok, live, _html} = conn |> authed() |> live(~p"/ops")
+
+      render_click(live, "request_restore_from_server", %{"filename" => "backup.json"})
+      html = render_click(live, "confirm_restore")
+
+      assert html =~ "Restore was not confirmed."
+    end
+
     test "confirming a server restore without matching the pending filename is rejected", %{
       conn: conn
     } do

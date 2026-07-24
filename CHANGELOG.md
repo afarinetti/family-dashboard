@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restore calendars/settings from a backup already saved on the server's
   filesystem (the directory the nightly backup writes to), alongside the
   existing "upload a file" option on `/ops`.
+- A small version badge in the top-left corner of the kiosk dashboard,
+  reflecting the running app version.
 - Multi-platform (amd64 + arm64) container images, built natively on GitHub's
   `ubuntu-24.04-arm` runner instead of QEMU emulation.
 - `family_dashboard.sh`, a consolidated deploy management script for the

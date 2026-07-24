@@ -29,6 +29,15 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     assert html =~ "No weather data yet."
   end
 
+  test "renders the running app version as a badge", %{conn: conn} do
+    {:ok, _live, html} = live(conn, ~p"/")
+
+    version = Application.spec(:family_dashboard, :vsn) |> to_string()
+
+    assert html =~ "v#{version}"
+    refute html =~ "vnil"
+  end
+
   test "renders a self-hosted SVG icon for the current condition (no emoji/webfont dependency)",
        %{conn: conn} do
     Dashboard.record_weather!(%{

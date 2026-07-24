@@ -349,7 +349,11 @@ defmodule FamilyDashboardWeb.OpsLive do
         socket =
           socket
           |> put_flash(:info, "Restored #{n} calendar(s) and the settings.")
-          |> assign(pending_restore: nil, restore_error: nil)
+          |> assign(
+            pending_restore: nil,
+            restore_error: nil,
+            server_backups: Backup.list_backups()
+          )
           |> reload_status()
 
         {:noreply, socket}
