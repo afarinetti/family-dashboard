@@ -57,6 +57,7 @@ defmodule FamilyDashboard.Dashboard do
       define :create_news_feed, action: :create
       define :update_news_feed, action: :update
       define :destroy_news_feed, action: :destroy
+      define :upsert_news_feed, action: :upsert
     end
 
     resource FamilyDashboard.NewsItem do
