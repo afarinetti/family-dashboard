@@ -26,7 +26,12 @@
           }
         };
         if (!document.documentElement.hasAttribute("data-theme")) {
-          setTheme(localStorage.getItem("phx:theme") || "system");
+          // Defaults to dark rather than "system": this kiosk runs on bare
+          // Ubuntu Frame + WPE WebKit with no GNOME session, so there's no
+          // OS-level dark-mode signal for prefers-color-scheme to ever pick
+          // up — matchMedia always reports "light" here regardless of intent,
+          // and the wpe-webkit-mir-kiosk snap has no config option for this.
+          setTheme(localStorage.getItem("phx:theme") || "dark");
         }
         window.addEventListener("storage", (e) => e.key === "phx:theme" && setTheme(e.newValue || "system"));
         window.addEventListener("phx:set-theme", (e) => setTheme(e.target.dataset.phxTheme));
