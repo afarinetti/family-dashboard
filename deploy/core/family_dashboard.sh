@@ -94,7 +94,14 @@ PORT=4000
 
 # SQLite connection pool size (defaults to 10). A single kiosk browser + Oban
 # background jobs rarely need more than the default.
-POOL_SIZE=
+#
+# Must be a non-blank integer, not left empty: config/runtime.exs does
+# `String.to_integer(System.get_env("POOL_SIZE") || "10")`, and Docker's
+# --env-file sets a bare `POOL_SIZE=` to an empty string rather than leaving
+# it unset, so `System.get_env` returns "" (truthy in Elixir) and the release
+# crashes in `String.to_integer("")` during boot. Leave this line as-is
+# (POOL_SIZE=10) rather than blanking it out.
+POOL_SIZE=10
 
 # Weather provider: "xweather" (default) or "openweather".
 WEATHER_PROVIDER=xweather
@@ -175,9 +182,15 @@ cmd_install() {
   # automatically, and /ops has no create-path for a missing Setting — so
   # this is required, not optional, on a genuinely fresh volume. Safe to
   # re-run: seeds.exs checks for an existing row before inserting.
+  # `bin/family_dashboard pid` only proves the BEAM node itself is up — it
+  # returns success while the release is still running migrations and before
+  # the app's supervision tree (and Repo) has started, which made the seed
+  # step below race against a "could not lookup Ecto repo" error on a fresh
+  # volume. Poll for the Repo process specifically instead.
   echo "==> Waiting for the app to come up..."
   for _ in $(seq 1 30); do
-    docker exec "$CONTAINER_NAME" bin/family_dashboard pid >/dev/null 2>&1 && break
+    docker exec "$CONTAINER_NAME" bin/family_dashboard rpc \
+      'if !Process.whereis(FamilyDashboard.Repo), do: raise("not up")' >/dev/null 2>&1 && break
     sleep 1
   done
 
