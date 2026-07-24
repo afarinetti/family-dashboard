@@ -44,15 +44,25 @@ carries no secrets; those are injected at container runtime.
 
 ### 2. On the device: install Docker + the app
 
+`curl`/`wget` on Ubuntu Core are strictly-confined snaps and typically can't
+write to `$HOME` — don't try to curl the script onto the device itself. Instead,
+copy the single file over from a machine that already has this repo cloned
+(e.g. your laptop), using the SSH access you already have to the device:
+
 ```sh
-curl -fsSL https://raw.githubusercontent.com/afarinetti/family-dashboard/main/deploy/core/family_dashboard.sh -o family_dashboard.sh
+# From your own machine, not the device:
+scp deploy/core/family_dashboard.sh <user>@<device-host>:~/family_dashboard.sh
+
+# Then on the device:
 chmod +x family_dashboard.sh
 export FAMILY_DASHBOARD_IMAGE=ghcr.io/<your-org>/family_dashboard:latest
 ./family_dashboard.sh install
 ```
 
-No git clone required — `family_dashboard.sh` is fully self-contained. It
-installs the `docker` snap, creates the `family_dashboard_data` volume,
+No git clone required *on the device* — `family_dashboard.sh` is fully
+self-contained, it just needs to arrive there by some means other than a
+confined `curl`/`wget` snap. It installs the `docker` snap, creates the
+`family_dashboard_data` volume,
 prompts you (via the generated `~/family_dashboard.env`) to set
 `SETTINGS_PASSWORD` (and optionally weather API keys), generates
 `SECRET_KEY_BASE` for you, and starts the container with
