@@ -562,7 +562,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
                 <div :if={@weather} class="flex flex-col gap-1">
                   <div class="flex items-center justify-between gap-3">
                     <div class="flex items-center gap-3">
-                      <span class="text-7xl">{weather_emoji(@weather.icon)}</span>
+                      <.weather_icon variant={:animated} token={@weather.icon} class="w-20 h-20" />
                       <p class="text-7xl font-bold tabular-nums">{round_temp(@weather.temp)}°</p>
                     </div>
                     <div class="text-right shrink-0">
@@ -614,7 +614,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
                         @tz
                       )}</span>
                     </span>
-                    <span class="text-2xl text-center">{weather_emoji(hour.icon)}</span>
+                    <.weather_icon variant={:static} token={hour.icon} class="w-8 h-8 mx-auto" />
                     <span class="text-lg font-bold text-right tabular-nums">{round_temp(hour.temp)}°</span>
                     <span class="relative h-[7px] rounded-full bg-base-300">
                       <span
@@ -649,7 +649,7 @@ defmodule FamilyDashboardWeb.DashboardLive do
                     class="grid grid-cols-[3.5rem_2.125rem_2.375rem_1fr_2.375rem_2.625rem] items-center gap-2 min-h-[2rem]"
                   >
                     <span class="text-lg font-semibold">{day_short_label(day.forecast_date, @today)}</span>
-                    <span class="text-2xl text-center">{weather_emoji(day.icon)}</span>
+                    <.weather_icon variant={:static} token={day.icon} class="w-8 h-8 mx-auto" />
                     <span class="text-lg text-base-content/70 text-right tabular-nums">{round_temp(
                       day.low
                     )}°</span>
@@ -1091,33 +1091,6 @@ defmodule FamilyDashboardWeb.DashboardLive do
   end
 
   defp notable_feels_like?(_hour), do: false
-
-  # Map a provider-neutral icon token (see FamilyDashboard.Weather.Provider) to a
-  # simple emoji (offline-friendly, no image fetch). A placeholder for a missing
-  # icon (daily entries can omit it) — distinct from the unrecognized-token
-  # fallback below, since "no data" and "data we don't know how to draw" are
-  # different failure modes worth telling apart at a glance. Keying on tokens
-  # rather than a provider's raw codes means this doesn't change when the
-  # weather provider does (see `config :family_dashboard, :weather_provider`).
-  defp weather_emoji(nil), do: "❓"
-
-  defp weather_emoji(icon) do
-    case icon do
-      "clear" -> "☀️"
-      "partly_cloudy" -> "🌤️"
-      "cloudy" -> "☁️"
-      "rain" -> "🌧️"
-      "showers" -> "🌦️"
-      "thunderstorm" -> "⛈️"
-      "snow" -> "❄️"
-      "fog" -> "🌁"
-      "tornado" -> "🌪️"
-      "hurricane" -> "🌀"
-      "blizzard" -> "🌨️"
-      "ice_storm" -> "🧊"
-      _ -> "🌡️"
-    end
-  end
 
   # --- weather alert helpers ---
 

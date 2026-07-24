@@ -86,6 +86,7 @@ defmodule FamilyDashboardWeb do
       import Phoenix.HTML
       # Core UI components
       import FamilyDashboardWeb.CoreComponents
+      import FamilyDashboardWeb.WeatherIcons
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS
