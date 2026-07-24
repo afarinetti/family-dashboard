@@ -26,10 +26,23 @@ defmodule FamilyDashboard.NewsFeed do
       create: [:url, :label, :enabled, :last_fetched_at, :last_error],
       update: [:url, :label, :enabled, :last_fetched_at, :last_error]
     ]
+
+    # Used by FamilyDashboard.Backup to restore news feeds from a JSON export:
+    # updates an existing row by id (leaving last_fetched_at/last_error alone —
+    # Backup resets those separately) or inserts a new one. Mirrors
+    # FamilyDashboard.Calendar's :upsert action.
+    create :upsert do
+      upsert? true
+      upsert_identity :id
+      upsert_fields [:url, :label, :enabled]
+      accept [:id, :url, :label, :enabled]
+    end
   end
 
   attributes do
-    uuid_primary_key :id
+    uuid_primary_key :id do
+      writable? true
+    end
 
     attribute :url, :string do
       allow_nil? false
@@ -62,5 +75,9 @@ defmodule FamilyDashboard.NewsFeed do
     has_many :items, FamilyDashboard.NewsItem do
       destination_attribute :news_feed_id
     end
+  end
+
+  identities do
+    identity :id, [:id]
   end
 end

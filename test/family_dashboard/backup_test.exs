@@ -12,15 +12,41 @@ defmodule FamilyDashboard.BackupTest do
   end
 
   describe "export/0 and export_json/0" do
-    test "includes version, calendars, and the singleton setting" do
+    test "includes version, calendars, news feeds, and the singleton setting" do
       Dashboard.create_calendar!(%{name: "Family", ical_url: "https://x/cal.ics"})
+      Dashboard.create_news_feed!(%{url: "https://x/feed.xml", label: "Local news"})
 
       data = Backup.export()
 
       assert data["version"] == 1
       assert data["exported_at"]
       assert [%{"name" => "Family", "ical_url" => "https://x/cal.ics"}] = data["calendars"]
+
+      assert [%{"url" => "https://x/feed.xml", "label" => "Local news"}] = data["news_feeds"]
+
       assert data["setting"]["time_zone"]
+    end
+
+    test "includes every operator-editable setting field, not just a subset" do
+      Dashboard.update_setting!(elem(Dashboard.current_setting(), 1), %{
+        alerts_min_severity: "severe",
+        alerts_hidden_categories: "small craft advisory",
+        alerts_always_show_categories: "heat,flood",
+        alerts_show_body: true,
+        news_refresh_minutes: 30,
+        news_retention_hours: 48,
+        news_ticker_chars_per_second: 20
+      })
+
+      setting = Backup.export()["setting"]
+
+      assert setting["alerts_min_severity"] == "severe"
+      assert setting["alerts_hidden_categories"] == "small craft advisory"
+      assert setting["alerts_always_show_categories"] == "heat,flood"
+      assert setting["alerts_show_body"] == true
+      assert setting["news_refresh_minutes"] == 30
+      assert setting["news_retention_hours"] == 48
+      assert setting["news_ticker_chars_per_second"] == 20
     end
 
     test "export_json/0 produces valid, round-trippable JSON" do
@@ -226,6 +252,113 @@ defmodule FamilyDashboard.BackupTest do
       assert reloaded.city_label == "Testville"
       assert is_nil(reloaded.weather_last_error)
       assert is_nil(reloaded.weather_last_attempted_at)
+    end
+
+    test "restores the alert-filtering and news-ticker setting fields" do
+      backup =
+        Backup.export()
+        |> put_in(["setting", "alerts_min_severity"], "severe")
+        |> put_in(["setting", "alerts_hidden_categories"], "small craft advisory")
+        |> put_in(["setting", "alerts_always_show_categories"], "heat,flood")
+        |> put_in(["setting", "alerts_show_body"], true)
+        |> put_in(["setting", "news_refresh_minutes"], 30)
+        |> put_in(["setting", "news_retention_hours"], 48)
+        |> put_in(["setting", "news_ticker_chars_per_second"], 20)
+        |> Jason.encode!()
+
+      assert {:ok, _} = Backup.import_json(backup, skip_safety_export: true)
+
+      reloaded = Dashboard.current_setting!()
+      assert reloaded.alerts_min_severity == "severe"
+      assert reloaded.alerts_hidden_categories == "small craft advisory"
+      assert reloaded.alerts_always_show_categories == "heat,flood"
+      assert reloaded.alerts_show_body == true
+      assert reloaded.news_refresh_minutes == 30
+      assert reloaded.news_retention_hours == 48
+      assert reloaded.news_ticker_chars_per_second == 20
+    end
+
+    test "upserts an existing news feed by id without touching its id" do
+      feed = Dashboard.create_news_feed!(%{url: "https://old/feed.xml", label: "Old"})
+
+      backup =
+        Backup.export()
+        |> put_in(["news_feeds"], [
+          %{
+            "id" => feed.id,
+            "url" => "https://new/feed.xml",
+            "label" => "New label",
+            "enabled" => false
+          }
+        ])
+        |> Jason.encode!()
+
+      assert {:ok, %{news_feeds_restored: 1}} =
+               Backup.import_json(backup, skip_safety_export: true)
+
+      reloaded = Dashboard.get_news_feed!(feed.id)
+      assert reloaded.id == feed.id
+      assert reloaded.url == "https://new/feed.xml"
+      assert reloaded.label == "New label"
+      assert reloaded.enabled == false
+    end
+
+    test "inserts a news feed not yet in the database" do
+      new_id = Ash.UUID.generate()
+
+      backup =
+        Backup.export()
+        |> put_in(["news_feeds"], [
+          %{"id" => new_id, "url" => "https://new/feed.xml", "label" => "New", "enabled" => true}
+        ])
+        |> Jason.encode!()
+
+      assert {:ok, _} = Backup.import_json(backup, skip_safety_export: true)
+      assert Dashboard.get_news_feed!(new_id).label == "New"
+    end
+
+    test "resets a restored news feed's fetch status" do
+      feed = Dashboard.create_news_feed!(%{url: "https://x/feed.xml", label: "Local"})
+
+      Dashboard.update_news_feed!(feed, %{
+        last_error: "boom",
+        last_fetched_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      })
+
+      backup =
+        Backup.export()
+        |> put_in(["news_feeds"], [
+          %{"id" => feed.id, "url" => "https://x/feed.xml", "label" => "Local", "enabled" => true}
+        ])
+        |> Jason.encode!()
+
+      assert {:ok, _} = Backup.import_json(backup, skip_safety_export: true)
+
+      reloaded = Dashboard.get_news_feed!(feed.id)
+      assert is_nil(reloaded.last_error)
+      assert is_nil(reloaded.last_fetched_at)
+    end
+
+    test "leaves a news feed not present in the backup untouched" do
+      untouched = Dashboard.create_news_feed!(%{url: "https://x/u.xml", label: "Untouched"})
+
+      backup = Backup.export() |> put_in(["news_feeds"], []) |> Jason.encode!()
+
+      assert {:ok, %{news_feeds_restored: 0}} =
+               Backup.import_json(backup, skip_safety_export: true)
+
+      assert Dashboard.get_news_feed!(untouched.id).label == "Untouched"
+    end
+
+    test "restores a pre-news-feeds backup (missing the news_feeds key) without crashing" do
+      untouched = Dashboard.create_news_feed!(%{url: "https://x/u.xml", label: "Untouched"})
+
+      backup = Backup.export() |> Map.delete("news_feeds") |> Jason.encode!()
+
+      assert {:ok, %{news_feeds_restored: 0}} =
+               Backup.import_json(backup, skip_safety_export: true)
+
+      assert Dashboard.get_news_feed!(untouched.id).label == "Untouched"
     end
 
     test "rejects an unsupported version" do

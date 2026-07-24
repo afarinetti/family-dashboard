@@ -16,8 +16,8 @@ ARG ELIXIR_VERSION=1.19.5
 ARG OTP_VERSION=28.5.0.3
 ARG DEBIAN_VERSION=bookworm-20260713-slim
 
-ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}"
-ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"
+ARG BUILDER_IMAGE="docker.io/hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}"
+ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}"
 
 # ---- Builder ----------------------------------------------------------------
 FROM ${BUILDER_IMAGE} AS builder
@@ -82,12 +82,13 @@ RUN mix release
 # ---- Runner -------------------------------------------------------------
 FROM ${RUNNER_IMAGE}
 
-# libstdc++6/openssl: required by the BEAM/crypto NIFs. No `sqlite3` package —
-# exqlite statically compiles SQLite into its own NIF, so the system library
-# isn't used. `curl`: container healthcheck probes the public `/` LiveView
-# (the app has no dedicated /health route).
+# libstdc++6/openssl: required by the BEAM/crypto NIFs. libncurses6: backs the
+# readline used by `bin/family_dashboard remote` for a live console. No
+# `sqlite3` package — exqlite statically compiles SQLite into its own NIF, so
+# the system library isn't used. `curl`: container healthcheck probes the
+# public `/` LiveView (the app has no dedicated /health route).
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
-      libstdc++6 openssl ca-certificates locales curl \
+      libstdc++6 openssl libncurses6 ca-certificates locales curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
