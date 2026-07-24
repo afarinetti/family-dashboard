@@ -49,8 +49,15 @@ RUN mkdir config
 COPY config/config.exs config/${MIX_ENV}.exs config/
 RUN mix deps.compile
 
-# Application source must compile *before* the asset build: Phoenix 1.8's
-# colocated hooks/CSS feature generates
+# FamilyDashboardWeb.WeatherIcons embeds assets/vendor/meteocons/**/*.svg
+# into the compiled BEAM at *compile* time (`@external_resource` +
+# `File.read!/1`), so those files must exist before `mix compile` runs —
+# copied separately (and first) from the rest of assets/ so routine CSS/JS
+# edits don't bust this layer's cache; the vendored icons rarely change.
+COPY assets/vendor assets/vendor
+
+# Application source must compile *before* the full asset build: Phoenix
+# 1.8's colocated hooks/CSS feature generates
 # `phoenix-colocated/family_dashboard/colocated.css` as a side effect of
 # compiling lib/ (via the `:phoenix_live_view` compiler in mix.exs), and
 # tailwind's build fails without it. (Discovered by an actual build failure —

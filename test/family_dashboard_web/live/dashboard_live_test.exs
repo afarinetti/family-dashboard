@@ -29,6 +29,20 @@ defmodule FamilyDashboardWeb.DashboardLiveTest do
     assert html =~ "No weather data yet."
   end
 
+  test "renders a self-hosted SVG icon for the current condition (no emoji/webfont dependency)",
+       %{conn: conn} do
+    Dashboard.record_weather!(%{
+      observed_at: DateTime.utc_now() |> DateTime.truncate(:second),
+      temp: 70.0,
+      condition: "Rain",
+      icon: "rain"
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    assert has_element?(view, "[data-weather-icon='rain']")
+  end
+
   test "shows synced calendar events in the agenda", %{conn: conn} do
     day = Date.add(Date.utc_today(), 1)
 
