@@ -275,7 +275,12 @@ cmd_logs() {
     esac
   done
 
-  docker logs "${extra_args[@]}" --tail "$tail_value" "$CONTAINER_NAME"
+  # "${extra_args[@]}" alone throws "unbound variable" under `set -u` on
+  # bash 3.2 (macOS's default /bin/bash) when the array is empty — fixed in
+  # bash 4.4+, but this script has to tolerate older bash too. The
+  # ${arr[@]+"${arr[@]}"} idiom expands to nothing when the array is unset
+  # or empty, on every bash version.
+  docker logs "${extra_args[@]+"${extra_args[@]}"}" --tail "$tail_value" "$CONTAINER_NAME"
 }
 
 cmd_uninstall() {
